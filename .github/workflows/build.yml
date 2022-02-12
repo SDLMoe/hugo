@@ -20,4 +20,10 @@ jobs:
     - name: Build
       env:
         CGO_ENABLED: "1"
-      run: go build --tags extended -o .\build\hugo-${{ matrix.os }} -trimpath -ldflags "-s -w" .
+      run: go build --tags extended -o ./build/hugo-${{ matrix.os }} -trimpath -ldflags "-s -w" .
+
+    - name: upload
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{ matrix.os }}
+        path: build/hugo-${{ matrix.os }}
