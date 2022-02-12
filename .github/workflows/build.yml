@@ -27,6 +27,6 @@ jobs:
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
         file: build/hugo-${{ matrix.os }}
-        asset_name: build/hugo-${{ matrix.os }}
+        asset_name: hugo-${{ matrix.os }}
         tag: ${{ github.ref }}
         overwrite: true
