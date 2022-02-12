@@ -22,8 +22,11 @@ jobs:
         CGO_ENABLED: "1"
       run: go build --tags extended -o ./build/hugo-${{ matrix.os }} -trimpath -ldflags "-s -w" .
 
-    - name: upload
-      uses: actions/upload-artifact@v2
+    - name: Upload binaries to release
+      uses: svenstaro/upload-release-action@v2
       with:
-        name: ${{ matrix.os }}
-        path: build/hugo-${{ matrix.os }}
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: build/hugo-${{ matrix.os }}
+        asset_name: build/hugo-${{ matrix.os }}
+        tag: ${{ github.ref }}
+        overwrite: true
