@@ -1,0 +1,23 @@
+name: Build
+
+on: [workflow_dispatch]
+
+jobs:
+
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.17
+
+    - name: Build
+      env:
+        CGO_ENABLED: "1"
+      run: go build --tags extended -o .\build\hugo-${{ matrix.os }} -trimpath -ldflags "-s -w" .
