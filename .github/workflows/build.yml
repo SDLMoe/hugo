@@ -20,7 +20,7 @@ jobs:
     - name: Build
       env:
         CGO_ENABLED: "1"
-      run: mkdir -p build && go build --tags extended -o ./build/hugo-${{ matrix.os }} -trimpath -ldflags '-s -w -linkmode "external" -extldflags "-static"' .
+      run: mkdir -p build && go build --tags extended -o ./build/hugo-${{ matrix.os }} -trimpath -ldflags '-s -w' .
 
     - name: Upload binaries to release
       uses: svenstaro/upload-release-action@v2
