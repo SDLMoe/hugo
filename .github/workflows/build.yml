@@ -1,4 +1,4 @@
-name: Build
+name: Build Statically
 
 on: [workflow_dispatch]
 
@@ -20,7 +20,7 @@ jobs:
     - name: Build
       env:
         CGO_ENABLED: "1"
-      run: go build --tags extended -o ./build/hugo-${{ matrix.os }} -trimpath -ldflags "-s -w" .
+      run: mkdir -p build && go build --tags extended -o ./build/hugo-${{ matrix.os }} -trimpath -ldflags '-s -w -linkmode "external" -extldflags "-static"' .
 
     - name: Upload binaries to release
       uses: svenstaro/upload-release-action@v2
