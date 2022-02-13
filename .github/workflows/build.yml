@@ -27,11 +27,10 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       env:
         CGO_ENABLED: "1"
-        CC: 'musl-clang'
-        CXX: 'clang++'
+        CC: 'musl-gcc'
       run: |
         sudo apt update
-        sudo apt install -y clang musl-tools gcc llvm musl
+        sudo apt install -y musl-tools gcc musl
         mkdir -p build
         go build --tags extended -o ./build/hugo -trimpath -ldflags '-s -w -linkmode "external" -extldflags "-static"' .
 
