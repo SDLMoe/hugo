@@ -18,13 +18,13 @@ jobs:
         go-version: 1.17
 
     # - name: Build ${{ matrix.os }}
-    #   if: matrix.platform == 'macos-latest'
+    #   if: matrix.os == 'macos-latest'
     #   env:
     #     CGO_ENABLED: "1"
     #   run: mkdir build && go build --tags extended -o ./build/hugo-${{ matrix.os }} -trimpath -ldflags '-s -w' .
 
     - name: Build ${{ matrix.os }}
-      if: matrix.platform == 'ubuntu-latest'
+      if: matrix.os == 'ubuntu-latest'
       env:
         CGO_ENABLED: "1"
         CC: 'musl-clang'
@@ -36,7 +36,7 @@ jobs:
         go build --tags extended -o ./build/hugo -trimpath -ldflags '-s -w -linkmode "external" -extldflags "-static"' .
 
     # - name: Build ${{ matrix.os }}
-    #   if: matrix.platform == 'windows-latest'
+    #   if: matrix.os == 'windows-latest'
     #   env:
     #     CGO_ENABLED: "1"
     #   run: mkdir build && go build --tags extended -o ./build/hugo-${{ matrix.os }} -trimpath -ldflags '-s -w' .
