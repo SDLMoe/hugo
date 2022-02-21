@@ -190,13 +190,14 @@ func TestFlags(t *testing.T) {
 				"--navigateToChanged",
 				"--disableLiveReload",
 				"--noHTTPCache",
-				"--i18n-warnings",
+				"--printI18nWarnings",
 				"--destination=/tmp/mydestination",
 				"-b=https://example.com/b/",
 				"--port=1366",
 				"--renderToDisk",
 				"--source=mysource",
-				"--path-warnings",
+				"--printPathWarnings",
+				"--printUnusedTemplates",
 			},
 			check: func(c *qt.C, sc *serverCmd) {
 				c.Assert(sc, qt.Not(qt.IsNil))
@@ -220,10 +221,10 @@ func TestFlags(t *testing.T) {
 
 				c.Assert(cfg.GetBool("gc"), qt.Equals, true)
 
-				// The flag is named path-warnings
+				// The flag is named printPathWarnings
 				c.Assert(cfg.GetBool("logPathWarnings"), qt.Equals, true)
 
-				// The flag is named i18n-warnings
+				// The flag is named printI18nWarnings
 				c.Assert(cfg.GetBool("logI18nWarnings"), qt.Equals, true)
 			},
 		},

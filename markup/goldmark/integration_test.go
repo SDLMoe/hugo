@@ -14,11 +14,13 @@
 package goldmark_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/gohugoio/hugo/hugolib"
 )
 
+// Issue 9463
 func TestAttributeExclusion(t *testing.T) {
 	t.Parallel()
 
@@ -54,8 +56,131 @@ foo
 	).Build()
 
 	b.AssertFileContent("public/p1/index.html", `
-<h2 class="a" id="heading">
-<blockquote class="b">
-<div class="highlight" id="c">
+		<h2 class="a" id="heading">
+		<blockquote class="b">
+		<div class="highlight" id="c">
 	`)
+}
+
+// Issue 9511
+func TestAttributeExclusionWithRenderHook(t *testing.T) {
+	t.Parallel()
+
+	files := `
+-- content/p1.md --
+---
+title: "p1"
+---
+## Heading {onclick="alert('renderhook')" data-foo="bar"}
+-- layouts/_default/single.html --
+{{ .Content }}
+-- layouts/_default/_markup/render-heading.html --
+<h{{ .Level }}
+  {{- range $k, $v := .Attributes -}}
+    {{- printf " %s=%q" $k $v | safeHTMLAttr -}}
+  {{- end -}}
+>{{ .Text | safeHTML }}</h{{ .Level }}>
+`
+
+	b := hugolib.NewIntegrationTestBuilder(
+		hugolib.IntegrationTestConfig{
+			T:           t,
+			TxtarString: files,
+			NeedsOsFS:   false,
+		},
+	).Build()
+
+	b.AssertFileContent("public/p1/index.html", `
+		<h2 data-foo="bar" id="heading">Heading</h2>
+	`)
+}
+
+// Issue 9504
+func TestLinkInTitle(t *testing.T) {
+	t.Parallel()
+
+	files := `
+-- config.toml --
+-- content/p1.md --
+---
+title: "p1"
+---
+## Hello [Test](https://example.com)
+-- layouts/_default/single.html --
+{{ .Content }}
+-- layouts/_default/_markup/render-heading.html --
+<h{{ .Level }} id="{{ .Anchor | safeURL }}">
+  {{ .Text | safeHTML }}
+  <a class="anchor" href="#{{ .Anchor | safeURL }}">#</a>
+</h{{ .Level }}>
+-- layouts/_default/_markup/render-link.html --
+<a href="{{ .Destination | safeURL }}"{{ with .Title}} title="{{ . }}"{{ end }}>{{ .Text | safeHTML }}</a>
+
+`
+
+	b := hugolib.NewIntegrationTestBuilder(
+		hugolib.IntegrationTestConfig{
+			T:           t,
+			TxtarString: files,
+			NeedsOsFS:   false,
+		},
+	).Build()
+
+	b.AssertFileContent("public/p1/index.html",
+		"<h2 id=\"hello-testhttpsexamplecom\">\n  Hello <a href=\"https://example.com\">Test</a>\n\n  <a class=\"anchor\" href=\"#hello-testhttpsexamplecom\">#</a>\n</h2>",
+	)
+}
+
+func BenchmarkSiteWithRenderHooks(b *testing.B) {
+	files := `
+-- config.toml --
+-- layouts/_default/_markup/render-heading.html --
+<h{{ .Level }} id="{{ .Anchor | safeURL }}">
+	{{ .Text | safeHTML }}
+	<a class="anchor" href="#{{ .Anchor | safeURL }}">#</a>
+</h{{ .Level }}>
+-- layouts/_default/_markup/render-link.html --
+<a href="{{ .Destination | safeURL }}"{{ with .Title}} title="{{ . }}"{{ end }}>{{ .Text | safeHTML }}</a>
+-- layouts/_default/single.html --
+{{ .Content }}
+`
+
+	content := `
+
+## Hello1 [Test](https://example.com)
+
+A.
+
+## Hello2 [Test](https://example.com)
+
+B.
+
+## Hello3 [Test](https://example.com)
+
+C.
+
+## Hello3 [Test](https://example.com)
+
+D.
+`
+
+	for i := 1; i < 100; i++ {
+		files += fmt.Sprintf("\n-- content/posts/p%d.md --\n"+content, i+1)
+	}
+
+	cfg := hugolib.IntegrationTestConfig{
+		T:           b,
+		TxtarString: files,
+	}
+	builders := make([]*hugolib.IntegrationTestBuilder, b.N)
+
+	for i := range builders {
+		builders[i] = hugolib.NewIntegrationTestBuilder(cfg)
+	}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		builders[i].Build()
+	}
 }
