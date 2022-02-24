@@ -1,0 +1,1 @@
+CXX=clang++ CC=clang CGO_ENABLED=1 http_proxy=http://127.0.0.1:11663 https_proxy=http://127.0.0.1:11663 go build --tags extended -o ./build/hugo -trimpath -ldflags '-s -w -linkmode "external" -extldflags "-static"' .
