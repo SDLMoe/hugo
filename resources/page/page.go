@@ -107,6 +107,7 @@ type GetPageProvider interface {
 // GitInfoProvider provides Git info.
 type GitInfoProvider interface {
 	GitInfo() *gitmap.GitInfo
+	Codeowners() []string
 }
 
 // InSectionPositioner provides section navigation.
@@ -261,7 +262,15 @@ type PageWithoutContent interface {
 	// Helper methods
 	ShortcodeInfoProvider
 	compare.Eqer
+
+	// Scratch returns a Scratch that can be used to store temporary state.
+	// Note that this Scratch gets reset on server rebuilds. See Store() for a variant that survives.
 	maps.Scratcher
+
+	// Store returns a Scratch that can be used to store temporary state.
+	// In contrast to Scratch(), this Scratch is not reset on server rebuilds.
+	Store() *maps.Scratch
+
 	RelatedKeywordsProvider
 
 	// GetTerms gets the terms of a given taxonomy,
