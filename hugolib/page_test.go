@@ -428,8 +428,7 @@ func testAllMarkdownEnginesForPages(t *testing.T,
 
 			assertFunc(t, e.ext, s.RegularPages())
 
-			home, err := s.Info.Home()
-			b.Assert(err, qt.IsNil)
+			home := s.Info.Home()
 			b.Assert(home, qt.Not(qt.IsNil))
 			b.Assert(home.File().Path(), qt.Equals, homePath)
 			b.Assert(content(home), qt.Contains, "Home Page Content")
@@ -1075,14 +1074,14 @@ func TestPageWithLastmodFromGitInfo(t *testing.T) {
 
 	// 2018-03-11 is the Git author date for testsite/content/first-post.md
 	c.Assert(enSite.RegularPages()[0].Lastmod().Format("2006-01-02"), qt.Equals, "2018-03-11")
-	c.Assert(enSite.RegularPages()[0].Codeowners()[0], qt.Equals, "@bep")
+	c.Assert(enSite.RegularPages()[0].CodeOwners()[0], qt.Equals, "@bep")
 
 	nnSite := h.Sites[1]
 	c.Assert(len(nnSite.RegularPages()), qt.Equals, 1)
 
 	// 2018-08-11 is the Git author date for testsite/content_nn/first-post.md
 	c.Assert(nnSite.RegularPages()[0].Lastmod().Format("2006-01-02"), qt.Equals, "2018-08-11")
-	c.Assert(enSite.RegularPages()[0].Codeowners()[0], qt.Equals, "@bep")
+	c.Assert(enSite.RegularPages()[0].CodeOwners()[0], qt.Equals, "@bep")
 }
 
 func TestPageWithFrontMatterConfig(t *testing.T) {
@@ -1286,7 +1285,7 @@ func TestTranslationKey(t *testing.T) {
 
 	c.Assert(len(s.RegularPages()), qt.Equals, 2)
 
-	home, _ := s.Info.Home()
+	home := s.Info.Home()
 	c.Assert(home, qt.Not(qt.IsNil))
 	c.Assert(home.TranslationKey(), qt.Equals, "home")
 	c.Assert(s.RegularPages()[0].TranslationKey(), qt.Equals, "page/k1")
