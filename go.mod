@@ -60,7 +60,7 @@ require (
 	github.com/tdewolff/minify/v2 v2.10.0
 	github.com/yuin/goldmark v1.4.8
 	go.uber.org/atomic v1.9.0
-	gocloud.dev v0.20.0
+	gocloud.dev v0.24.0
 	golang.org/x/image v0.0.0-20211028202545-6944b10bf410
 	golang.org/x/net v0.0.0-20220127200216-cd36cc0744dd
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
