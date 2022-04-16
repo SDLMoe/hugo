@@ -23,7 +23,7 @@ jobs:
         uses: svenstaro/upload-release-action@master
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: hugo-bin
+          file: hugo-bin/hugo
           asset_name: hugo
           tag: ${{ github.ref }}
           overwrite: true
