@@ -78,7 +78,7 @@ This means the partial will *only* be able to access those variables. The partia
 
 ## Returning a value from a Partial
 
-In addition to outputting markup, partials can be used to return a value of any type. In order to return a value, a partial must include a lone `return` statement.
+In addition to outputting markup, partials can be used to return a value of any type. In order to return a value, a partial must include a lone `return` statement _at the end of the partial_.
 
 ### Example GetFeatured
 
@@ -126,9 +126,9 @@ Only one `return` statement is allowed per partial file.
 You can also define partials inline in the template. But remember that template namespace is global, so you need to make sure that the names are unique to avoid conflicts.
 
 ```go-html-template
-Value: {{ partial "my-inline-partial" . }}
+Value: {{ partial "my-inline-partial.html" . }}
 
-{{ define "partials/my-inline-partial" }}
+{{ define "partials/my-inline-partial.html" }}
 {{ $value := 32 }}
 {{ return $value }}
 {{ end }}

@@ -282,6 +282,15 @@ func (c *Client) Vendor() error {
 			}
 		}
 
+		// Include the config directory if present.
+		configDir := filepath.Join(dir, "config")
+		_, err = c.fs.Stat(configDir)
+		if err == nil {
+			if err := hugio.CopyDir(c.fs, configDir, filepath.Join(vendorDir, t.Path(), "config"), nil); err != nil {
+				return errors.Wrap(err, "failed to copy config dir to vendor dir")
+			}
+		}
+
 		// Also include any theme.toml or config.* files in the root.
 		configFiles, _ := afero.Glob(c.fs, filepath.Join(dir, "config.*"))
 		configFiles = append(configFiles, filepath.Join(dir, "theme.toml"))
@@ -305,8 +314,9 @@ func (c *Client) Vendor() error {
 
 // Get runs "go get" with the supplied arguments.
 func (c *Client) Get(args ...string) error {
-	if len(args) == 0 || (len(args) == 1 && args[0] == "-u") {
+	if len(args) == 0 || (len(args) == 1 && strings.Contains(args[0], "-u")) {
 		update := len(args) != 0
+		patch := update && (args[0] == "-u=patch") //
 
 		// We need to be explicit about the modules to get.
 		for _, m := range c.moduleConfig.Imports {
@@ -318,10 +328,14 @@ func (c *Client) Get(args ...string) error {
 				continue
 			}
 			var args []string
-			if update {
+
+			if update && !patch {
 				args = append(args, "-u")
+			} else if update && patch {
+				args = append(args, "-u=patch")
 			}
 			args = append(args, m.Path)
+
 			if err := c.get(args...); err != nil {
 				return err
 			}

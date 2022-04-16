@@ -37,6 +37,9 @@ type PageMatcher struct {
 
 	// A Glob pattern matching the Page's language, e.g. "{en,sv}".
 	Lang string
+
+	// A Glob pattern matching the Page's Environment, e.g. "{production,development}".
+	Environment string
 }
 
 // Matches returns whether p matches this matcher.
@@ -67,11 +70,18 @@ func (m PageMatcher) Matches(p Page) bool {
 		}
 	}
 
+	if m.Environment != "" {
+		g, err := glob.GetGlob(m.Environment)
+		if err == nil && !g.Match(p.Site().Hugo().Environment) {
+			return false
+		}
+	}
+
 	return true
 }
 
-// DecodeCascade decodes in which could be eiter a map or a slice of maps.
-func DecodeCascade(in interface{}) (map[PageMatcher]maps.Params, error) {
+// DecodeCascade decodes in which could be either a map or a slice of maps.
+func DecodeCascade(in any) (map[PageMatcher]maps.Params, error) {
 	m, err := maps.ToSliceStringMap(in)
 	if err != nil {
 		return map[PageMatcher]maps.Params{
@@ -106,7 +116,7 @@ func DecodeCascade(in interface{}) (map[PageMatcher]maps.Params, error) {
 }
 
 // DecodePageMatcher decodes m into v.
-func DecodePageMatcher(m interface{}, v *PageMatcher) error {
+func DecodePageMatcher(m any, v *PageMatcher) error {
 	if err := mapstructure.WeakDecode(m, v); err != nil {
 		return err
 	}

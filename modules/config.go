@@ -270,7 +270,7 @@ type Config struct {
 	Imports []Import
 
 	// Meta info about this module (license information etc.).
-	Params map[string]interface{}
+	Params map[string]any
 
 	// Will be validated against the running Hugo version.
 	HugoVersion HugoVersion
@@ -386,10 +386,10 @@ type Mount struct {
 	Lang string // any language code associated with this mount.
 
 	// Include only files matching the given Glob patterns (string or slice).
-	IncludeFiles interface{}
+	IncludeFiles any
 
 	// Exclude all files matching the given Glob patterns (string or slice).
-	ExcludeFiles interface{}
+	ExcludeFiles any
 }
 
 // Used as key to remove duplicates.
@@ -402,11 +402,8 @@ func (m Mount) Component() string {
 }
 
 func (m Mount) ComponentAndName() (string, string) {
-	k := strings.Index(m.Target, fileSeparator)
-	if k == -1 {
-		return m.Target, ""
-	}
-	return m.Target[:k], m.Target[k+1:]
+	c, n, _ := strings.Cut(m.Target, fileSeparator)
+	return c, n
 }
 
 func getStaticDirs(cfg config.Provider) []string {

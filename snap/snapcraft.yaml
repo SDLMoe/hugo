@@ -17,14 +17,29 @@ package-repositories:
     key-id: 9FD3B784BC1C6FC31A8A0A1C1655A0AB68576280
     url: https://deb.nodesource.com/node_16.x
 
+plugs:
+  system-gitconfig:
+    interface: system-files
+    read:
+    - /etc/gitconfig
+  user-gitconfig:
+    interface: personal-files
+    read:
+    - $HOME/.gitconfig
+    - $HOME/.config/git/config
+    
 apps:
   hugo:
+    environment:
+      HOME: $SNAP_REAL_HOME
     command: bin/hugo
     completer: hugo-completion
     plugs:
       - home
       - network-bind
       - removable-media
+      - system-gitconfig
+      - user-gitconfig
 
 parts:
   git:
@@ -38,7 +53,7 @@ parts:
 
   hugo:
     plugin: nil
-    build-snaps: [go/1.16/stable]
+    build-snaps: [go/1.18/stable]
     source: .
     override-build: |
       set -ex
@@ -47,8 +62,8 @@ parts:
       export GOPATH=$(realpath ../go)
       export PATH=$GOPATH/bin:$PATH
 
-      echo ' * Running "go get -v github.com/magefile/mage"...'
-      go get -v github.com/magefile/mage
+      echo ' * Running "go install -v github.com/magefile/mage"...'
+      go install -v github.com/magefile/mage
 
       #echo ' * Running "mage -v test"...'
       #mage -v test

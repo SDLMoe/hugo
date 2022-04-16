@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -48,17 +49,18 @@ import (
 
 type serverCmd struct {
 	// Can be used to stop the server. Useful in tests
-	stop <-chan bool
+	stop chan bool
 
-	disableLiveReload bool
-	navigateToChanged bool
-	renderToDisk      bool
-	serverAppend      bool
-	serverInterface   string
-	serverPort        int
-	liveReloadPort    int
-	serverWatch       bool
-	noHTTPCache       bool
+	disableLiveReload  bool
+	navigateToChanged  bool
+	renderToDisk       bool
+	renderStaticToDisk bool
+	serverAppend       bool
+	serverInterface    string
+	serverPort         int
+	liveReloadPort     int
+	serverWatch        bool
+	noHTTPCache        bool
 
 	disableFastRender   bool
 	disableBrowserError bool
@@ -70,7 +72,7 @@ func (b *commandsBuilder) newServerCmd() *serverCmd {
 	return b.newServerCmdSignaled(nil)
 }
 
-func (b *commandsBuilder) newServerCmdSignaled(stop <-chan bool) *serverCmd {
+func (b *commandsBuilder) newServerCmdSignaled(stop chan bool) *serverCmd {
 	cc := &serverCmd{stop: stop}
 
 	cc.baseBuilderCmd = b.newBuilderCmd(&cobra.Command{
@@ -89,7 +91,13 @@ By default hugo will also watch your files for any changes you make and
 automatically rebuild the site. It will then live reload any open browser pages
 and push the latest content to them. As most Hugo sites are built in a fraction
 of a second, you will be able to save and see your changes nearly instantly.`,
-		RunE: cc.server,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			err := cc.server(cmd, args)
+			if err != nil && cc.stop != nil {
+				cc.stop <- true
+			}
+			return err
+		},
 	})
 
 	cc.cmd.Flags().IntVarP(&cc.serverPort, "port", "p", 1313, "port on which the server will listen")
@@ -100,7 +108,8 @@ of a second, you will be able to save and see your changes nearly instantly.`,
 	cc.cmd.Flags().BoolVarP(&cc.serverAppend, "appendPort", "", true, "append port to baseURL")
 	cc.cmd.Flags().BoolVar(&cc.disableLiveReload, "disableLiveReload", false, "watch without enabling live browser reload on rebuild")
 	cc.cmd.Flags().BoolVar(&cc.navigateToChanged, "navigateToChanged", false, "navigate to changed content file on live browser reload")
-	cc.cmd.Flags().BoolVar(&cc.renderToDisk, "renderToDisk", false, "render to Destination path (default is render to memory & serve from there)")
+	cc.cmd.Flags().BoolVar(&cc.renderToDisk, "renderToDisk", false, "serve all files from disk (default is from memory)")
+	cc.cmd.Flags().BoolVar(&cc.renderStaticToDisk, "renderStaticToDisk", false, "serve static files from disk and dynamic files from memory")
 	cc.cmd.Flags().BoolVar(&cc.disableFastRender, "disableFastRender", false, "enables full re-renders on changes")
 	cc.cmd.Flags().BoolVar(&cc.disableBrowserError, "disableBrowserError", false, "do not show build errors in the browser")
 
@@ -130,8 +139,6 @@ func (f noDirFile) Readdir(count int) ([]os.FileInfo, error) {
 	return nil, nil
 }
 
-var serverPorts []int
-
 func (sc *serverCmd) server(cmd *cobra.Command, args []string) error {
 	// If a Destination is provided via flag write to disk
 	destination, _ := cmd.Flags().GetString("destination")
@@ -142,7 +149,8 @@ func (sc *serverCmd) server(cmd *cobra.Command, args []string) error {
 	var serverCfgInit sync.Once
 
 	cfgInit := func(c *commandeer) (rerr error) {
-		c.Set("renderToMemory", !sc.renderToDisk)
+		c.Set("renderToMemory", !(sc.renderToDisk || sc.renderStaticToDisk))
+		c.Set("renderStaticToDisk", sc.renderStaticToDisk)
 		if cmd.Flags().Changed("navigateToChanged") {
 			c.Set("navigateToChanged", sc.navigateToChanged)
 		}
@@ -166,22 +174,21 @@ func (sc *serverCmd) server(cmd *cobra.Command, args []string) error {
 
 		// We can only do this once.
 		serverCfgInit.Do(func() {
-			serverPorts = make([]int, 1)
+			c.serverPorts = make([]serverPortListener, 1)
 
 			if c.languages.IsMultihost() {
 				if !sc.serverAppend {
 					rerr = newSystemError("--appendPort=false not supported when in multihost mode")
 				}
-				serverPorts = make([]int, len(c.languages))
+				c.serverPorts = make([]serverPortListener, len(c.languages))
 			}
 
 			currentServerPort := sc.serverPort
 
-			for i := 0; i < len(serverPorts); i++ {
+			for i := 0; i < len(c.serverPorts); i++ {
 				l, err := net.Listen("tcp", net.JoinHostPort(sc.serverInterface, strconv.Itoa(currentServerPort)))
 				if err == nil {
-					l.Close()
-					serverPorts[i] = currentServerPort
+					c.serverPorts[i] = serverPortListener{ln: l, p: currentServerPort}
 				} else {
 					if i == 0 && sc.cmd.Flags().Changed("port") {
 						// port set explicitly by user -- he/she probably meant it!
@@ -189,15 +196,15 @@ func (sc *serverCmd) server(cmd *cobra.Command, args []string) error {
 						return
 					}
 					c.logger.Println("port", sc.serverPort, "already in use, attempting to use an available port")
-					sp, err := helpers.FindAvailablePort()
+					l, sp, err := helpers.TCPListen()
 					if err != nil {
 						rerr = newSystemError("Unable to find alternative port to use:", err)
 						return
 					}
-					serverPorts[i] = sp.Port
+					c.serverPorts[i] = serverPortListener{ln: l, p: sp.Port}
 				}
 
-				currentServerPort = serverPorts[i] + 1
+				currentServerPort = c.serverPorts[i].p + 1
 			}
 		})
 
@@ -205,22 +212,20 @@ func (sc *serverCmd) server(cmd *cobra.Command, args []string) error {
 			return
 		}
 
-		c.serverPorts = serverPorts
-
 		c.Set("port", sc.serverPort)
 		if sc.liveReloadPort != -1 {
 			c.Set("liveReloadPort", sc.liveReloadPort)
 		} else {
-			c.Set("liveReloadPort", serverPorts[0])
+			c.Set("liveReloadPort", c.serverPorts[0].p)
 		}
 
 		isMultiHost := c.languages.IsMultihost()
 		for i, language := range c.languages {
 			var serverPort int
 			if isMultiHost {
-				serverPort = serverPorts[i]
+				serverPort = c.serverPorts[i].p
 			} else {
-				serverPort = serverPorts[0]
+				serverPort = c.serverPorts[0].p
 			}
 
 			baseURL, err := sc.fixURL(language, sc.baseURL, serverPort)
@@ -304,7 +309,7 @@ func getRootWatchDirsStr(baseDir string, watchDirs []string) string {
 type fileServer struct {
 	baseURLs      []string
 	roots         []string
-	errorTemplate func(err interface{}) (io.Reader, error)
+	errorTemplate func(err any) (io.Reader, error)
 	c             *commandeer
 	s             *serverCmd
 }
@@ -320,31 +325,39 @@ func (f *fileServer) rewriteRequest(r *http.Request, toPath string) *http.Reques
 	return r2
 }
 
-func (f *fileServer) createEndpoint(i int) (*http.ServeMux, string, string, error) {
+func (f *fileServer) createEndpoint(i int) (*http.ServeMux, net.Listener, string, string, error) {
 	baseURL := f.baseURLs[i]
 	root := f.roots[i]
-	port := f.c.serverPorts[i]
+	port := f.c.serverPorts[i].p
+	listener := f.c.serverPorts[i].ln
 
+	// For logging only.
+	// TODO(bep) consolidate.
 	publishDir := f.c.Cfg.GetString("publishDir")
+	publishDirStatic := f.c.Cfg.GetString("publishDirStatic")
+	workingDir := f.c.Cfg.GetString("workingDir")
 
 	if root != "" {
 		publishDir = filepath.Join(publishDir, root)
+		publishDirStatic = filepath.Join(publishDirStatic, root)
 	}
-
-	absPublishDir := f.c.hugo().PathSpec.AbsPathify(publishDir)
+	absPublishDir := paths.AbsPathify(workingDir, publishDir)
+	absPublishDirStatic := paths.AbsPathify(workingDir, publishDirStatic)
 
 	jww.FEEDBACK.Printf("Environment: %q", f.c.hugo().Deps.Site.Hugo().Environment)
 
 	if i == 0 {
 		if f.s.renderToDisk {
 			jww.FEEDBACK.Println("Serving pages from " + absPublishDir)
+		} else if f.s.renderStaticToDisk {
+			jww.FEEDBACK.Println("Serving pages from memory and static files from " + absPublishDirStatic)
 		} else {
 			jww.FEEDBACK.Println("Serving pages from memory")
 		}
 	}
 
-	httpFs := afero.NewHttpFs(f.c.destinationFs)
-	fs := filesOnlyFs{httpFs.Dir(absPublishDir)}
+	httpFs := afero.NewHttpFs(f.c.publishDirServerFs)
+	fs := filesOnlyFs{httpFs.Dir(path.Join("/", root))}
 
 	if i == 0 && f.c.fastRenderMode {
 		jww.FEEDBACK.Println("Running in Fast Render Mode. For full rebuilds on change: hugo server --disableFastRender")
@@ -353,7 +366,7 @@ func (f *fileServer) createEndpoint(i int) (*http.ServeMux, string, string, erro
 	// We're only interested in the path
 	u, err := url.Parse(baseURL)
 	if err != nil {
-		return nil, "", "", errors.Wrap(err, "Invalid baseURL")
+		return nil, nil, "", "", errors.Wrap(err, "Invalid baseURL")
 	}
 
 	decorate := func(h http.Handler) http.Handler {
@@ -459,7 +472,7 @@ func (f *fileServer) createEndpoint(i int) (*http.ServeMux, string, string, erro
 
 	endpoint := net.JoinHostPort(f.s.serverInterface, strconv.Itoa(port))
 
-	return mu, u.String(), endpoint, nil
+	return mu, listener, u.String(), endpoint, nil
 }
 
 var logErrorRe = regexp.MustCompile(`(?s)ERROR \d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} `)
@@ -497,7 +510,7 @@ func (c *commandeer) serve(s *serverCmd) error {
 		roots:    roots,
 		c:        c,
 		s:        s,
-		errorTemplate: func(ctx interface{}) (io.Reader, error) {
+		errorTemplate: func(ctx any) (io.Reader, error) {
 			b := &bytes.Buffer{}
 			err := c.hugo().Tmpl().Execute(templ, b, ctx)
 			return b, err
@@ -514,8 +527,10 @@ func (c *commandeer) serve(s *serverCmd) error {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	var servers []*http.Server
 
+	wg1, ctx := errgroup.WithContext(context.Background())
+
 	for i := range baseURLs {
-		mu, serverURL, endpoint, err := srv.createEndpoint(i)
+		mu, listener, serverURL, endpoint, err := srv.createEndpoint(i)
 		srv := &http.Server{
 			Addr:    endpoint,
 			Handler: mu,
@@ -532,13 +547,13 @@ func (c *commandeer) serve(s *serverCmd) error {
 			mu.HandleFunc(u.Path+"/livereload", livereload.Handler)
 		}
 		jww.FEEDBACK.Printf("Web Server is available at %s (bind address %s)\n", serverURL, s.serverInterface)
-		go func() {
-			err = srv.ListenAndServe()
+		wg1.Go(func() error {
+			err = srv.Serve(listener)
 			if err != nil && err != http.ErrServerClosed {
-				c.logger.Errorf("Error: %s\n", err.Error())
-				os.Exit(1)
+				return err
 			}
-		}()
+			return nil
+		})
 	}
 
 	jww.FEEDBACK.Println("Press Ctrl+C to stop")
@@ -556,15 +571,19 @@ func (c *commandeer) serve(s *serverCmd) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	wg, ctx := errgroup.WithContext(ctx)
+	wg2, ctx := errgroup.WithContext(ctx)
 	for _, srv := range servers {
 		srv := srv
-		wg.Go(func() error {
+		wg2.Go(func() error {
 			return srv.Shutdown(ctx)
 		})
 	}
 
-	return wg.Wait()
+	err1, err2 := wg1.Wait(), wg2.Wait()
+	if err1 != nil {
+		return err1
+	}
+	return err2
 }
 
 // fixURL massages the baseURL into a form needed for serving

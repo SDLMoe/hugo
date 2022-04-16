@@ -1,5 +1,7 @@
 # Contributing to Hugo
 
+**Note  March 16th 2022:** We are currently very constrained on human resources to do code reviews, so we currently require any new Pull Requests to be limited to bug fixes closing an existing issue. Also, we have updated to Go 1.18, but we will currently not accept any generic rewrites, "interface{} to any" replacements and similar.
+
 We welcome contributions to Hugo of any kind including documentation, themes,
 organization, tutorials, blog posts, bug reports, issues, feature requests,
 feature implementations, pull requests, answering questions on the forum,
@@ -124,7 +126,7 @@ go install
 For some convenient build and test targets, you also will want to install Mage:
 
 ```bash
-go get github.com/magefile/mage
+go install github.com/magefile/mage
 ```
 
 Now, to make a change to Hugo's source:
