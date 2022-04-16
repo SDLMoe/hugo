@@ -3,7 +3,7 @@ on: workflow_dispatch
 jobs:
   container:
     runs-on: ubuntu-latest
-    container: alpine:latest
+    container: alpine:edge
     steps:
       - name: Run in container
         run: |
@@ -14,3 +14,16 @@ jobs:
         with:
           name: hugo
           path: hugo/build/hugo
+      - uses: actions/download-artifact@v3
+        with:
+          name: hugo
+          path: hugo-bin
+          
+      - name: Upload binaries to release
+        uses: svenstaro/upload-release-action@master
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: hugo-bin
+          asset_name: hugo
+          tag: ${{ github.ref }}
+          overwrite: true
