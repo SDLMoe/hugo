@@ -1,14 +1,14 @@
 name: Docker
 on: workflow_dispatch
 jobs:
-  container:
+  build:
     runs-on: ubuntu-latest
     container: alpine:edge
     steps:
-      - name: Run in container
+      - name: Build in Alpine Container
         run: |
-          apk add --update --no-cache gcc g++ musl-dev git go ca-certificates libc6-compat libstdc++
-          git clone --depth 1 https://github.com/SDLMoe/hugo.git
+          apk -U upgrade && apk add --no-cache gcc g++ musl-dev git go ca-certificates libc6-compat libstdc++
+          git clone --depth 1 https://github.com/SDLMoe/hugo.git && \
           cd hugo && sh build.sh
       - uses: actions/upload-artifact@v3
         with:
