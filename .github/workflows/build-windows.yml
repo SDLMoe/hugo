@@ -10,13 +10,13 @@ jobs:
       - name: Get clang
         run: |
           export PATH="/c/msys64/clang64/bin:/c/msys64/usr/bin:$PATH"
-          pacman -Syu --needed --noconfirm mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-go
-          pacman -Syu --needed --noconfirm mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-go
+          bash -c "pacman -Syu --needed --noconfirm mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-go"
+          bash -c "pacman -Syu --needed --noconfirm mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-go"
         shell: bash
       - name: Build
         run: |
           export PATH="/c/msys64/clang64/bin:/c/msys64/usr/bin:$PATH"
-          sh build.sh
+          bash -c "clang -v && bash build.sh"
         shell: bash
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@master

@@ -12,7 +12,8 @@ jobs:
           go-version: '>=1.18'
       - name: Build
         run: |
-          sh build.sh
+          export PATH="$(brew --prefix llvm)/bin:$PATH"
+          clang -v && sh build.sh
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@master
         with:
