@@ -8,6 +8,8 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Build
+        env:
+          GOROOT_1_18_X64: 1
         run: |
           sh build.sh
         shell: bash
