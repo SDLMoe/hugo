@@ -1,5 +1,7 @@
 name: Build hugo for windows
-on: push
+on: 
+  push
+  workflow_dispatch
 jobs:
   build:
     runs-on: windows-latest
