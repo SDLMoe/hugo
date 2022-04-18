@@ -7,10 +7,12 @@ jobs:
     runs-on: ubuntu-latest
     container: alpine:edge
     steps:
+      - name: Get clang
+        run: |
+          apk -U upgrade && apk add --no-cache clang-dev musl-dev llvm13-dev git go ca-certificates libc6-compat gcc g++
       - name: Build in Alpine Container
         run: |
-          apk -U upgrade && apk add --no-cache clang-dev musl-dev llvm13-dev git go ca-certificates
-          git clone --depth 1 https://github.com/SDLMoe/hugo.git && \
+          git clone --depth 1 https://github.com/SDLMoe/hugo.git
           cd hugo && sh build.sh
       - uses: actions/upload-artifact@v3
         with:
