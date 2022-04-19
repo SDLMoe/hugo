@@ -12,12 +12,12 @@ jobs:
           export PATH="/c/msys64/clang64/bin:/c/msys64/usr/bin:$PATH"
           bash -c "pacman -Syu --needed --noconfirm mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-go"
           bash -c "pacman -Syu --needed --noconfirm mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-go"
-        shell: bash
+        shell: "C:/msys64/usr/bin/bash.exe"
       - name: Build
         run: |
           export PATH="/c/msys64/clang64/bin:/c/msys64/usr/bin:$PATH"
           bash -c "clang -v && bash build.sh"
-        shell: bash
+        shell: "C:/msys64/usr/bin/bash.exe"
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@master
         with:
