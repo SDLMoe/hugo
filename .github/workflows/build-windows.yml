@@ -25,7 +25,7 @@ jobs:
         run: |
           pacman -Syu --needed --noconfirm --overwrite base git mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-go
           export PATH="/clang64/bin:/usr/bin:$PATH" GOROOT="C:/msys64/clang64/lib/go"
-          clang -v && bash build.sh
+          bash build.sh
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@master
         with:
