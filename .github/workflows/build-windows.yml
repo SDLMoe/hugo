@@ -15,15 +15,14 @@ jobs:
         with:
           location: C:\msys64
           msystem: CLANG64
-      - name: Update msys2
-        shell: msys2 {0}
-        run: |
-          export PATH="/clang64/bin:/usr/bin:$PATH"
-          bash -c "pacman -Syu --needed --noconfirm --overwrite mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-go"
+          update: true
+          install: >-
+            base
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-go
       - name: Build
         shell: msys2 {0}
         run: |
-          bash -c "pacman -Syu --needed --noconfirm --overwrite mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-go"
           bash -c "clang -v && bash build.sh"
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@master
