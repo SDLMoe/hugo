@@ -7,13 +7,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Prepare
         run: Remove-Item -Recurse -Force -Path C:\msys64
         shell: powershell
-      - name: Build
+      - name: Get msys2
         uses: msys2/setup-msys2@v2
         with:
           location: C:\msys64
           msystem: CLANG64
+      - name: Build
         run: |
           export PATH="/clang64/bin:/usr/bin:$PATH"
           bash -c "pacman -Syu --needed --noconfirm --overwrite mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-go"
