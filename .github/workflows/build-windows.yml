@@ -7,17 +7,18 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Get clang
-        run: |
-          export PATH="/c/msys64/clang64/bin:/c/msys64/usr/bin:$PATH"
-          bash -c "pacman -Syu --needed --noconfirm mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-go"
-          bash -c "pacman -Syu --needed --noconfirm mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-go"
-        shell: "C:/msys64/usr/bin/bash.exe"
+        run: Remove-Item -Recurse -Force -Path C:\msys64
+        shell: powershell
       - name: Build
+        uses: msys2/setup-msys2@v2
+        with:
+          location: C:\msys64
+          msystem: CLANG64
         run: |
-          export PATH="/c/msys64/clang64/bin:/c/msys64/usr/bin:$PATH"
+          export PATH="/clang64/bin:/usr/bin:$PATH"
+          bash -c "pacman -Syu --needed --noconfirm --overwrite mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-go"
+          bash -c "pacman -Syu --needed --noconfirm --overwrite mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-go"
           bash -c "clang -v && bash build.sh"
-        shell: "C:/msys64/usr/bin/bash.exe"
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@master
         with:
