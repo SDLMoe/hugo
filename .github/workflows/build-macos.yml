@@ -13,7 +13,7 @@ jobs:
       - name: Build
         run: |
           export PATH="$(brew --prefix llvm)/bin:$PATH"
-          CXX=clang++ CC=clang CGO_ENABLED=1 go build --tags extended -o ./build/hugo -trimpath -ldflags '-s -w -linkmode "external" .
+          CXX=clang++ CC=clang CGO_ENABLED=1 go build --tags extended -o ./build/hugo -trimpath -ldflags '-s -w -linkmode "external"' .
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@master
         with:
