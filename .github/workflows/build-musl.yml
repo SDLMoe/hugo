@@ -5,7 +5,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: alpine:edge
+    container: alpine:3.16
     steps:
       - name: Get clang
         run: |
