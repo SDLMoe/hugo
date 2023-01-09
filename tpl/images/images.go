@@ -18,10 +18,9 @@ import (
 	"image"
 	"sync"
 
-	"github.com/pkg/errors"
+	"errors"
 
 	"github.com/gohugoio/hugo/resources/images"
-	"github.com/gohugoio/hugo/resources/resource"
 
 	// Importing image codecs for image.DecodeConfig
 	_ "image/gif"
@@ -92,12 +91,13 @@ func (ns *Namespace) Config(path any) (image.Config, error) {
 	return config, nil
 }
 
-func (ns *Namespace) Filter(args ...any) (resource.Image, error) {
+// Filter applies the given filters to the image given as the last element in args.
+func (ns *Namespace) Filter(args ...any) (images.ImageResource, error) {
 	if len(args) < 2 {
 		return nil, errors.New("must provide an image and one or more filters")
 	}
 
-	img := args[len(args)-1].(resource.Image)
+	img := args[len(args)-1].(images.ImageResource)
 	filtersv := args[:len(args)-1]
 
 	return img.Filter(filtersv...)

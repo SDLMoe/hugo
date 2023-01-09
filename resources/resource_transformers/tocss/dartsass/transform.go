@@ -1,4 +1,4 @@
-// Copyright 2020 The Hugo Authors. All rights reserved.
+// Copyright 2022 The Hugo Authors. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,19 +16,19 @@ package dartsass
 import (
 	"fmt"
 	"io"
-	"net/url"
 	"path"
 	"path/filepath"
 	"strings"
 
-	"github.com/gohugoio/hugo/common/herrors"
 	"github.com/gohugoio/hugo/common/hexec"
+	"github.com/gohugoio/hugo/common/paths"
 	"github.com/gohugoio/hugo/htesting"
 	"github.com/gohugoio/hugo/media"
 
 	"github.com/gohugoio/hugo/resources"
 
 	"github.com/gohugoio/hugo/resources/internal"
+	"github.com/gohugoio/hugo/resources/resource_transformers/tocss/internal/sass"
 
 	"github.com/spf13/afero"
 
@@ -38,9 +38,6 @@ import (
 )
 
 const (
-	// See https://github.com/sass/dart-sass-embedded/issues/24
-	// Note: This prefix must be all lower case.
-	stdinPrefix                = "hugostdin:"
 	dartSassEmbeddedBinaryName = "dart-sass-embedded"
 )
 
@@ -76,7 +73,7 @@ func (t *transform) Transform(ctx *resources.ResourceTransformationCtx) error {
 	}
 
 	baseDir := path.Dir(ctx.SourcePath)
-	filename := stdinPrefix
+	filename := dartSassStdinPrefix
 
 	if ctx.SourcePath != "" {
 		filename += t.c.sfs.RealFilename(ctx.SourcePath)
@@ -88,9 +85,12 @@ func (t *transform) Transform(ctx *resources.ResourceTransformationCtx) error {
 		ImportResolver: importResolver{
 			baseDir: baseDir,
 			c:       t.c,
+
+			varsStylesheet: sass.CreateVarsStyleSheet(opts.Vars),
 		},
-		OutputStyle:     godartsass.ParseOutputStyle(opts.OutputStyle),
-		EnableSourceMap: opts.EnableSourceMap,
+		OutputStyle:             godartsass.ParseOutputStyle(opts.OutputStyle),
+		EnableSourceMap:         opts.EnableSourceMap,
+		SourceMapIncludeSources: opts.SourceMapIncludeSources,
 	}
 
 	// Append any workDir relative include paths
@@ -108,31 +108,6 @@ func (t *transform) Transform(ctx *resources.ResourceTransformationCtx) error {
 
 	res, err := t.c.toCSS(args, ctx.From)
 	if err != nil {
-		if sassErr, ok := err.(godartsass.SassError); ok {
-			start := sassErr.Span.Start
-			context := strings.TrimSpace(sassErr.Span.Context)
-			filename, _ := urlToFilename(sassErr.Span.Url)
-			if strings.HasPrefix(filename, stdinPrefix) {
-				filename = filename[len(stdinPrefix):]
-			}
-
-			offsetMatcher := func(m herrors.LineMatcher) bool {
-				return m.Offset+len(m.Line) >= start.Offset && strings.Contains(m.Line, context)
-			}
-
-			ferr, ok := herrors.WithFileContextForFile(
-				herrors.NewFileError("scss", -1, -1, start.Column, sassErr),
-				filename,
-				filename,
-				hugofs.Os,
-				offsetMatcher)
-
-			if !ok {
-				return sassErr
-			}
-
-			return ferr
-		}
 		return err
 	}
 
@@ -156,10 +131,15 @@ func (t *transform) Transform(ctx *resources.ResourceTransformationCtx) error {
 type importResolver struct {
 	baseDir string
 	c       *Client
+
+	varsStylesheet string
 }
 
 func (t importResolver) CanonicalizeURL(url string) (string, error) {
-	filePath, isURL := urlToFilename(url)
+	if url == sass.HugoVarsNamespace {
+		return url, nil
+	}
+	filePath, isURL := paths.UrlToFilename(url)
 	var prevDir string
 	var pathDir string
 	if isURL {
@@ -205,23 +185,10 @@ func (t importResolver) CanonicalizeURL(url string) (string, error) {
 }
 
 func (t importResolver) Load(url string) (string, error) {
-	filename, _ := urlToFilename(url)
+	if url == sass.HugoVarsNamespace {
+		return t.varsStylesheet, nil
+	}
+	filename, _ := paths.UrlToFilename(url)
 	b, err := afero.ReadFile(hugofs.Os, filename)
 	return string(b), err
-}
-
-// TODO(bep) add tests
-func urlToFilename(urls string) (string, bool) {
-	u, err := url.ParseRequestURI(urls)
-	if err != nil {
-		return filepath.FromSlash(urls), false
-	}
-	p := filepath.FromSlash(u.Path)
-
-	if u.Host != "" {
-		// C:\data\file.txt
-		p = strings.ToUpper(u.Host) + ":" + p
-	}
-
-	return p, true
 }

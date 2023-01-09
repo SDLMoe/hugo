@@ -19,6 +19,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"image/gif"
 	_ "image/gif"
 	_ "image/png"
 	"io"
@@ -29,6 +30,8 @@ import (
 	"strings"
 	"sync"
 
+	color_extractor "github.com/marekm4/color-extractor"
+
 	"github.com/gohugoio/hugo/common/paths"
 
 	"github.com/disintegration/gift"
@@ -38,9 +41,6 @@ import (
 
 	"github.com/gohugoio/hugo/resources/resource"
 
-	"github.com/pkg/errors"
-	_errors "github.com/pkg/errors"
-
 	"github.com/gohugoio/hugo/helpers"
 	"github.com/gohugoio/hugo/resources/images"
 
@@ -49,12 +49,12 @@ import (
 )
 
 var (
-	_ resource.Image  = (*imageResource)(nil)
-	_ resource.Source = (*imageResource)(nil)
-	_ resource.Cloner = (*imageResource)(nil)
+	_ images.ImageResource = (*imageResource)(nil)
+	_ resource.Source      = (*imageResource)(nil)
+	_ resource.Cloner      = (*imageResource)(nil)
 )
 
-// ImageResource represents an image resource.
+// imageResource represents an image resource.
 type imageResource struct {
 	*images.Image
 
@@ -66,18 +66,21 @@ type imageResource struct {
 	metaInitErr error
 	meta        *imageMeta
 
+	dominantColorInit sync.Once
+	dominantColors    []string
+
 	baseResource
 }
 
 type imageMeta struct {
-	Exif *exif.Exif
+	Exif *exif.ExifInfo
 }
 
-func (i *imageResource) Exif() *exif.Exif {
+func (i *imageResource) Exif() *exif.ExifInfo {
 	return i.root.getExif()
 }
 
-func (i *imageResource) getExif() *exif.Exif {
+func (i *imageResource) getExif() *exif.ExifInfo {
 	i.metaInit.Do(func() {
 		supportsExif := i.Format == images.JPEG || i.Format == images.TIFF
 		if !supportsExif {
@@ -137,8 +140,36 @@ func (i *imageResource) getExif() *exif.Exif {
 	return i.meta.Exif
 }
 
+// Colors returns a slice of the most dominant colors in an image
+// using a simple histogram method.
+func (i *imageResource) Colors() ([]string, error) {
+	var err error
+	i.dominantColorInit.Do(func() {
+		var img image.Image
+		img, err = i.DecodeImage()
+		if err != nil {
+			return
+		}
+		colors := color_extractor.ExtractColors(img)
+		for _, c := range colors {
+			i.dominantColors = append(i.dominantColors, images.ColorToHexString(c))
+		}
+	})
+	return i.dominantColors, nil
+}
+
+// Clone is for internal use.
 func (i *imageResource) Clone() resource.Resource {
 	gr := i.baseResource.Clone().(baseResource)
+	return &imageResource{
+		root:         i.root,
+		Image:        i.WithSpec(gr),
+		baseResource: gr,
+	}
+}
+
+func (i *imageResource) cloneTo(targetPath string) resource.Resource {
+	gr := i.baseResource.cloneTo(targetPath).(baseResource)
 	return &imageResource{
 		root:         i.root,
 		Image:        i.WithSpec(gr),
@@ -170,7 +201,7 @@ func (i *imageResource) cloneWithUpdates(u *transformationUpdate) (baseResource,
 // Resize resizes the image to the specified width and height using the specified resampling
 // filter and returns the transformed image. If one of width or height is 0, the image aspect
 // ratio is preserved.
-func (i *imageResource) Resize(spec string) (resource.Image, error) {
+func (i *imageResource) Resize(spec string) (images.ImageResource, error) {
 	conf, err := i.decodeImageConfig("resize", spec)
 	if err != nil {
 		return nil, err
@@ -182,8 +213,8 @@ func (i *imageResource) Resize(spec string) (resource.Image, error) {
 }
 
 // Crop the image to the specified dimensions without resizing using the given anchor point.
-// Space delimited config: 200x300 TopLeft
-func (i *imageResource) Crop(spec string) (resource.Image, error) {
+// Space delimited config, e.g. `200x300 TopLeft`.
+func (i *imageResource) Crop(spec string) (images.ImageResource, error) {
 	conf, err := i.decodeImageConfig("crop", spec)
 	if err != nil {
 		return nil, err
@@ -196,7 +227,7 @@ func (i *imageResource) Crop(spec string) (resource.Image, error) {
 
 // Fit scales down the image using the specified resample filter to fit the specified
 // maximum width and height.
-func (i *imageResource) Fit(spec string) (resource.Image, error) {
+func (i *imageResource) Fit(spec string) (images.ImageResource, error) {
 	conf, err := i.decodeImageConfig("fit", spec)
 	if err != nil {
 		return nil, err
@@ -209,8 +240,8 @@ func (i *imageResource) Fit(spec string) (resource.Image, error) {
 
 // Fill scales the image to the smallest possible size that will cover the specified dimensions,
 // crops the resized image to the specified dimensions using the given anchor point.
-// Space delimited config: 200x300 TopLeft
-func (i *imageResource) Fill(spec string) (resource.Image, error) {
+// Space delimited config, e.g. `200x300 TopLeft`.
+func (i *imageResource) Fill(spec string) (images.ImageResource, error) {
 	conf, err := i.decodeImageConfig("fill", spec)
 	if err != nil {
 		return nil, err
@@ -238,7 +269,7 @@ func (i *imageResource) Fill(spec string) (resource.Image, error) {
 	return img, err
 }
 
-func (i *imageResource) Filter(filters ...any) (resource.Image, error) {
+func (i *imageResource) Filter(filters ...any) (images.ImageResource, error) {
 	conf := images.GetDefaultImageConfig("filter", i.Proc.Cfg)
 
 	var gfilters []gift.Filter
@@ -264,7 +295,7 @@ const imageProcWorkers = 1
 
 var imageProcSem = make(chan bool, imageProcWorkers)
 
-func (i *imageResource) doWithImageConfig(conf images.ImageConfig, f func(src image.Image) (image.Image, error)) (resource.Image, error) {
+func (i *imageResource) doWithImageConfig(conf images.ImageConfig, f func(src image.Image) (image.Image, error)) (images.ImageResource, error) {
 	img, err := i.getSpec().imageCache.getOrCreate(i, conf, func() (*imageResource, image.Image, error) {
 		imageProcSem <- true
 		defer func() {
@@ -324,7 +355,7 @@ func (i *imageResource) doWithImageConfig(conf images.ImageConfig, f func(src im
 	})
 	if err != nil {
 		if i.root != nil && i.root.getFileInfo() != nil {
-			return nil, errors.Wrapf(err, "image %q", i.root.getFileInfo().Meta().Filename)
+			return nil, fmt.Errorf("image %q: %w", i.root.getFileInfo().Meta().Filename, err)
 		}
 	}
 	return img, nil
@@ -339,14 +370,31 @@ func (i *imageResource) decodeImageConfig(action, spec string) (images.ImageConf
 	return conf, nil
 }
 
+type giphy struct {
+	image.Image
+	gif *gif.GIF
+}
+
+func (g *giphy) GIF() *gif.GIF {
+	return g.gif
+}
+
 // DecodeImage decodes the image source into an Image.
 // This an internal method and may change.
 func (i *imageResource) DecodeImage() (image.Image, error) {
 	f, err := i.ReadSeekCloser()
 	if err != nil {
-		return nil, _errors.Wrap(err, "failed to open image for decode")
+		return nil, fmt.Errorf("failed to open image for decode: %w", err)
 	}
 	defer f.Close()
+
+	if i.Format == images.GIF {
+		g, err := gif.DecodeAll(f)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode gif: %w", err)
+		}
+		return &giphy{gif: g, Image: g.Image[0]}, nil
+	}
 	img, _, err := image.Decode(f)
 	return img, err
 }

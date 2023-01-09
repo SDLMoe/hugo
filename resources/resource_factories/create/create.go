@@ -45,10 +45,17 @@ func New(rs *resources.Spec) *Client {
 	return &Client{
 		rs: rs,
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: time.Minute,
 		},
 		cacheGetResource: rs.FileCaches.GetResourceCache(),
 	}
+}
+
+// Copy copies r to the new targetPath.
+func (c *Client) Copy(r resource.Resource, targetPath string) (resource.Resource, error) {
+	return c.rs.ResourceCache.GetOrCreate(resources.ResourceCacheKey(targetPath), func() (resource.Resource, error) {
+		return resources.Copy(r, targetPath), nil
+	})
 }
 
 // Get creates a new Resource by opening the given filename in the assets filesystem.

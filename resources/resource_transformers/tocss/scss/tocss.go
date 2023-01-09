@@ -20,15 +20,18 @@ import (
 	"fmt"
 	"io"
 	"path"
+
 	"path/filepath"
 	"strings"
 
 	"github.com/bep/golibsass/libsass"
+	"github.com/bep/golibsass/libsass/libsasserrors"
+	"github.com/gohugoio/hugo/common/herrors"
 	"github.com/gohugoio/hugo/helpers"
 	"github.com/gohugoio/hugo/hugofs"
 	"github.com/gohugoio/hugo/media"
 	"github.com/gohugoio/hugo/resources"
-	"github.com/pkg/errors"
+	"github.com/gohugoio/hugo/resources/resource_transformers/tocss/internal/sass"
 )
 
 // Used in tests. This feature requires Hugo to be built with the extended tag.
@@ -61,11 +64,17 @@ func (t *toCSSTransformation) Transform(ctx *resources.ResourceTransformationCtx
 		}
 	}
 
+	varsStylesheet := sass.CreateVarsStyleSheet(options.from.Vars)
+
 	// To allow for overrides of SCSS files anywhere in the project/theme hierarchy, we need
 	// to help libsass revolve the filename by looking in the composite filesystem first.
 	// We add the entry directories for both project and themes to the include paths list, but
 	// that only work for overrides on the top level.
 	options.to.ImportResolver = func(url string, prev string) (newUrl string, body string, resolved bool) {
+		if url == sass.HugoVarsNamespace {
+			return url, varsStylesheet, true
+		}
+
 		// We get URL paths from LibSASS, but we need file paths.
 		url = filepath.FromSlash(url)
 		prev = filepath.FromSlash(prev)
@@ -137,7 +146,14 @@ func (t *toCSSTransformation) Transform(ctx *resources.ResourceTransformationCtx
 
 	res, err := t.c.toCSS(options.to, ctx.To, ctx.From)
 	if err != nil {
-		return err
+		if sasserr, ok := err.(libsasserrors.Error); ok {
+			if sasserr.File == "stdin" && ctx.SourcePath != "" {
+				sasserr.File = t.c.sfs.RealFilename(ctx.SourcePath)
+				err = sasserr
+			}
+		}
+		return herrors.NewFileErrorFromFileInErr(err, hugofs.Os, nil)
+
 	}
 
 	if options.from.EnableSourceMap && res.SourceMapContent != "" {
@@ -154,7 +170,7 @@ func (t *toCSSTransformation) Transform(ctx *resources.ResourceTransformationCtx
 		// This is a workaround for what looks like a bug in Libsass. But
 		// getting this resolution correct in tools like Chrome Workspaces
 		// is important enough to go this extra mile.
-		mapContent := strings.Replace(res.SourceMapContent, `stdin",`, fmt.Sprintf("%s\",", sourcePath), 1)
+		mapContent := strings.Replace(res.SourceMapContent, `stdin"`, fmt.Sprintf("%s\"", sourcePath), 1)
 
 		return ctx.PublishSourceMap(mapContent)
 	}
@@ -172,7 +188,7 @@ func (c *Client) toCSS(options libsass.Options, dst io.Writer, src io.Reader) (l
 	in := helpers.ReaderToString(src)
 
 	// See https://github.com/gohugoio/hugo/issues/7059
-	// We need to preserver the regular CSS imports. This is by far
+	// We need to preserve the regular CSS imports. This is by far
 	// a perfect solution, and only works for the main entry file, but
 	// that should cover many use cases, e.g. using SCSS as a preprocessor
 	// for Tailwind.
@@ -181,7 +197,7 @@ func (c *Client) toCSS(options libsass.Options, dst io.Writer, src io.Reader) (l
 
 	res, err = transpiler.Execute(in)
 	if err != nil {
-		return res, errors.Wrap(err, "SCSS processing failed")
+		return res, err
 	}
 
 	out := res.CSS

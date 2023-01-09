@@ -30,6 +30,7 @@ var chromaHightlightProcessingAttributes = map[string]bool{
 	"anchorLineNos":      true,
 	"guessSyntax":        true,
 	"hl_Lines":           true,
+	"hl_inline":          true,
 	"lineAnchors":        true,
 	"lineNos":            true,
 	"lineNoStart":        true,
@@ -124,6 +125,9 @@ type Attribute struct {
 func (a Attribute) ValueString() string {
 	return cast.ToString(a.Value)
 }
+
+// Empty holds no attributes.
+var Empty = &AttributesHolder{}
 
 type AttributesHolder struct {
 	// What we get from Goldmark.

@@ -16,21 +16,13 @@ package goldmark
 
 import (
 	"bytes"
-	"fmt"
-	"path/filepath"
-	"runtime/debug"
 
+	"github.com/gohugoio/hugo/identity"
 	"github.com/gohugoio/hugo/markup/goldmark/codeblocks"
+	"github.com/gohugoio/hugo/markup/goldmark/images"
 	"github.com/gohugoio/hugo/markup/goldmark/internal/extensions/attributes"
 	"github.com/gohugoio/hugo/markup/goldmark/internal/render"
 
-	"github.com/gohugoio/hugo/identity"
-
-	"github.com/pkg/errors"
-
-	"github.com/spf13/afero"
-
-	"github.com/gohugoio/hugo/hugofs"
 	"github.com/gohugoio/hugo/markup/converter"
 	"github.com/gohugoio/hugo/markup/tableofcontents"
 	"github.com/yuin/goldmark"
@@ -39,6 +31,10 @@ import (
 	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/renderer/html"
 	"github.com/yuin/goldmark/text"
+)
+
+const (
+	internalAttrPrefix = "_h__"
 )
 
 // Provider is the package entry point.
@@ -100,6 +96,8 @@ func newMarkdown(pcfg converter.ProviderConfig) goldmark.Markdown {
 		parserOptions []parser.Option
 	)
 
+	extensions = append(extensions, images.New(cfg.Parser.WrapStandAloneImageWithinParagraph))
+
 	if mcfg.Highlight.CodeFences {
 		extensions = append(extensions, codeblocks.New())
 	}
@@ -139,7 +137,6 @@ func newMarkdown(pcfg converter.ProviderConfig) goldmark.Markdown {
 	if cfg.Parser.Attribute.Title {
 		parserOptions = append(parserOptions, parser.WithAttribute())
 	}
-
 	if cfg.Parser.Attribute.Block {
 		extensions = append(extensions, attributes.New())
 	}
@@ -178,16 +175,6 @@ func (c converterResult) GetIdentities() identity.Identities {
 var converterIdentity = identity.KeyValueIdentity{Key: "goldmark", Value: "converter"}
 
 func (c *goldmarkConverter) Convert(ctx converter.RenderContext) (result converter.Result, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			dir := afero.GetTempDir(hugofs.Os, "hugo_bugs")
-			name := fmt.Sprintf("goldmark_%s.txt", c.ctx.DocumentID)
-			filename := filepath.Join(dir, name)
-			afero.WriteFile(hugofs.Os, filename, ctx.Src, 07555)
-			fmt.Print(string(debug.Stack()))
-			err = errors.Errorf("[BUG] goldmark: %s: create an issue on GitHub attaching the file in: %s", r, filename)
-		}
-	}()
 
 	buf := &render.BufWriter{Buffer: &bytes.Buffer{}}
 	result = buf

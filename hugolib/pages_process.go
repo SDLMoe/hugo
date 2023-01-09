@@ -22,7 +22,6 @@ import (
 	"github.com/gohugoio/hugo/source"
 
 	"github.com/gohugoio/hugo/hugofs/files"
-	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/gohugoio/hugo/common/herrors"
@@ -33,10 +32,9 @@ func newPagesProcessor(h *HugoSites, sp *source.SourceSpec) *pagesProcessor {
 	procs := make(map[string]pagesCollectorProcessorProvider)
 	for _, s := range h.Sites {
 		procs[s.Lang()] = &sitePagesProcessor{
-			m:                  s.pageMap,
-			errorSender:        s.h,
-			itemChan:           make(chan interface{}, config.GetNumWorkerMultiplier()*2),
-			renderStaticToDisk: h.Cfg.GetBool("renderStaticToDisk"),
+			m:           s.pageMap,
+			errorSender: s.h,
+			itemChan:    make(chan interface{}, config.GetNumWorkerMultiplier()*2),
 		}
 	}
 	return &pagesProcessor{
@@ -119,8 +117,6 @@ type sitePagesProcessor struct {
 	ctx       context.Context
 	itemChan  chan any
 	itemGroup *errgroup.Group
-
-	renderStaticToDisk bool
 }
 
 func (p *sitePagesProcessor) Process(item any) error {
@@ -156,7 +152,7 @@ func (p *sitePagesProcessor) copyFile(fim hugofs.FileMetaInfo) error {
 	meta := fim.Meta()
 	f, err := meta.Open()
 	if err != nil {
-		return errors.Wrap(err, "copyFile: failed to open")
+		return fmt.Errorf("copyFile: failed to open: %w", err)
 	}
 
 	s := p.m.s
@@ -165,10 +161,7 @@ func (p *sitePagesProcessor) copyFile(fim hugofs.FileMetaInfo) error {
 
 	defer f.Close()
 
-	fs := s.PublishFs
-	if p.renderStaticToDisk {
-		fs = s.PublishFsStatic
-	}
+	fs := s.PublishFsStatic
 
 	return s.publish(&s.PathSpec.ProcessingStats.Files, target, f, fs)
 }

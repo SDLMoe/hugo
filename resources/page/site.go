@@ -26,24 +26,54 @@ import (
 	"github.com/gohugoio/hugo/navigation"
 )
 
-// Site represents a site in the build. This is currently a very narrow interface,
-// but the actual implementation will be richer, see hugolib.SiteInfo.
+// Site represents a site. There can be multople sites in a multilingual setup.
 type Site interface {
+	// Returns the Language configured for this Site.
 	Language() *langs.Language
+
+	// Returns all the regular Pages in this Site.
 	RegularPages() Pages
+
+	// Returns all Pages in this Site.
 	Pages() Pages
+
+	// A shortcut to the home page.
 	Home() Page
+
+	// Returns true if we're running in a server.
 	IsServer() bool
+
+	// Returns the server port.
 	ServerPort() int
+
+	// Returns the configured title for this Site.
 	Title() string
+
+	// Returns all Sites for all languages.
 	Sites() Sites
+
+	// Returns Site currently rendering.
 	Current() Site
+
+	// Returns a struct with some information about the build.
 	Hugo() hugo.Info
+
+	// Returns the BaseURL for this Site.
 	BaseURL() template.URL
-	Taxonomies() any
+
+	// Retuns a taxonomy map.
+	Taxonomies() TaxonomyList
+
+	// Returns the last modification date of the content.
 	LastChange() time.Time
+
+	// Returns the Menus for this site.
 	Menus() navigation.Menus
+
+	// Returns the Params configured for this site.
 	Params() maps.Params
+
+	// Returns a map of all the data inside /data.
 	Data() map[string]any
 }
 
@@ -111,7 +141,7 @@ func (t testSite) Menus() navigation.Menus {
 	return nil
 }
 
-func (t testSite) Taxonomies() any {
+func (t testSite) Taxonomies() TaxonomyList {
 	return nil
 }
 

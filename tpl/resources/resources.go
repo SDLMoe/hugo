@@ -20,8 +20,9 @@ import (
 
 	"github.com/gohugoio/hugo/common/herrors"
 
+	"errors"
+
 	"github.com/gohugoio/hugo/common/maps"
-	"github.com/pkg/errors"
 
 	"github.com/gohugoio/hugo/tpl/internal/resourcehelpers"
 
@@ -110,13 +111,28 @@ func (ns *Namespace) getscssClientDartSass() (*dartsass.Client, error) {
 	return ns.scssClientDartSass, err
 }
 
+// Copy copies r to the new targetPath in s.
+func (ns *Namespace) Copy(s any, r resource.Resource) (resource.Resource, error) {
+	targetPath, err := cast.ToStringE(s)
+	if err != nil {
+		panic(err)
+	}
+	return ns.createClient.Copy(r, targetPath)
+}
+
 // Get locates the filename given in Hugo's assets filesystem
 // and creates a Resource object that can be used for further transformations.
 func (ns *Namespace) Get(filename any) resource.Resource {
+
 	filenamestr, err := cast.ToStringE(filename)
 	if err != nil {
 		panic(err)
 	}
+
+	if filenamestr == "" {
+		return nil
+	}
+
 	r, err := ns.createClient.Get(filenamestr)
 	if err != nil {
 		panic(err)
@@ -162,7 +178,7 @@ func (ns *Namespace) GetRemote(args ...any) resource.Resource {
 		case *create.HTTPError:
 			return resources.NewErrorResource(resource.NewResourceError(v, v.Data))
 		default:
-			return resources.NewErrorResource(resource.NewResourceError(errors.Wrap(err, "error calling resources.GetRemote"), make(map[string]any)))
+			return resources.NewErrorResource(resource.NewResourceError(fmt.Errorf("error calling resources.GetRemote: %w", err), make(map[string]any)))
 		}
 
 	}
@@ -348,13 +364,12 @@ func (ns *Namespace) ToCSS(args ...any) (resource.Resource, error) {
 	}
 
 	if m != nil {
-		maps.PrepareParams(m)
-		if t, found := m["transpiler"]; found {
+		if t, found := maps.LookupEqualFold(m, "transpiler"); found {
 			switch t {
 			case transpilerDart, transpilerLibSass:
 				transpiler = cast.ToString(t)
 			default:
-				return nil, errors.Errorf("unsupported transpiler %q; valid values are %q or %q", t, transpilerLibSass, transpilerDart)
+				return nil, fmt.Errorf("unsupported transpiler %q; valid values are %q or %q", t, transpilerLibSass, transpilerDart)
 			}
 		}
 	}
@@ -395,17 +410,11 @@ func (ns *Namespace) PostCSS(args ...any) (resource.Resource, error) {
 	if err != nil {
 		return nil, err
 	}
-	var options postcss.Options
-	if m != nil {
-		options, err = postcss.DecodeOptions(m)
-		if err != nil {
-			return nil, err
-		}
-	}
 
-	return ns.postcssClient.Process(r, options)
+	return ns.postcssClient.Process(r, m)
 }
 
+// PostProcess processes r after the build.
 func (ns *Namespace) PostProcess(r resource.Resource) (postpub.PostPublishedResource, error) {
 	return ns.deps.ResourceSpec.PostProcess(r)
 }

@@ -11,6 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package output contains Output Format types and functions.
 package output
 
 import (
@@ -19,8 +20,6 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-
-	"github.com/pkg/errors"
 
 	"github.com/mitchellh/mapstructure"
 
@@ -135,6 +134,14 @@ var (
 		Weight: 10,
 	}
 
+	MarkdownFormat = Format{
+		Name:        "MARKDOWN",
+		MediaType:   media.MarkdownType,
+		BaseName:    "index",
+		Rel:         "alternate",
+		IsPlainText: true,
+	}
+
 	JSONFormat = Format{
 		Name:        "JSON",
 		MediaType:   media.JSONType,
@@ -185,6 +192,7 @@ var DefaultFormats = Formats{
 	CSVFormat,
 	HTMLFormat,
 	JSONFormat,
+	MarkdownFormat,
 	WebAppManifestFormat,
 	RobotsTxtFormat,
 	RSSFormat,
@@ -364,7 +372,7 @@ func decode(mediaTypes media.Types, input any, output *Format) error {
 							}
 							dataVal.SetMapIndex(key, reflect.ValueOf(mediaType))
 						default:
-							return nil, errors.Errorf("invalid output format configuration; wrong type for media type, expected string (e.g. text/html), got %T", vvi)
+							return nil, fmt.Errorf("invalid output format configuration; wrong type for media type, expected string (e.g. text/html), got %T", vvi)
 						}
 					}
 				}
@@ -379,7 +387,7 @@ func decode(mediaTypes media.Types, input any, output *Format) error {
 	}
 
 	if err = decoder.Decode(input); err != nil {
-		return errors.Wrap(err, "failed to decode output format configuration")
+		return fmt.Errorf("failed to decode output format configuration: %w", err)
 	}
 
 	return nil
@@ -393,6 +401,7 @@ func (f Format) BaseFilename() string {
 }
 
 // MarshalJSON returns the JSON encoding of f.
+// For internal use only.
 func (f Format) MarshalJSON() ([]byte, error) {
 	type Alias Format
 	return json.Marshal(&struct {

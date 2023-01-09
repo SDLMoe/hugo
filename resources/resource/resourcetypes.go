@@ -14,12 +14,9 @@
 package resource
 
 import (
-	"image"
-
 	"github.com/gohugoio/hugo/common/maps"
 	"github.com/gohugoio/hugo/langs"
 	"github.com/gohugoio/hugo/media"
-	"github.com/gohugoio/hugo/resources/images/exif"
 
 	"github.com/gohugoio/hugo/common/hugio"
 )
@@ -29,8 +26,7 @@ var (
 	_ ResourceError        = (*resourceError)(nil)
 )
 
-// Cloner is an internal template and not meant for use in the templates. It
-// may change without notice.
+// Cloner is for internal use.
 type Cloner interface {
 	Clone() Resource
 }
@@ -68,6 +64,9 @@ type ResourceError interface {
 
 // ErrProvider provides an Err.
 type ErrProvider interface {
+
+	// Err returns an error if this resource is in an error state.
+	// This will currently only be set for resources obtained from resources.GetRemote.
 	Err() ResourceError
 }
 
@@ -80,26 +79,6 @@ type Resource interface {
 	ResourceParamsProvider
 	ResourceDataProvider
 	ErrProvider
-}
-
-// Image represents an image resource.
-type Image interface {
-	Resource
-	ImageOps
-}
-
-type ImageOps interface {
-	Height() int
-	Width() int
-	Crop(spec string) (Image, error)
-	Fill(spec string) (Image, error)
-	Fit(spec string) (Image, error)
-	Resize(spec string) (Image, error)
-	Filter(filters ...any) (Image, error)
-	Exif() *exif.Exif
-
-	// Internal
-	DecodeImage() (image.Image, error)
 }
 
 type ResourceTypeProvider interface {
@@ -147,7 +126,7 @@ type ResourceParamsProvider interface {
 
 type ResourceDataProvider interface {
 	// Resource specific data set by Hugo.
-	// One example would be.Data.Digest for fingerprinted resources.
+	// One example would be .Data.Integrity for fingerprinted resources.
 	Data() any
 }
 

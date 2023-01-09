@@ -16,6 +16,7 @@ package compare
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"strconv"
 	"time"
@@ -23,39 +24,42 @@ import (
 	"github.com/gohugoio/hugo/compare"
 	"github.com/gohugoio/hugo/langs"
 
+	"github.com/gohugoio/hugo/common/hreflect"
+	"github.com/gohugoio/hugo/common/htime"
 	"github.com/gohugoio/hugo/common/types"
 )
 
 // New returns a new instance of the compare-namespaced template functions.
-func New(caseInsensitive bool) *Namespace {
-	return &Namespace{caseInsensitive: caseInsensitive}
+func New(loc *time.Location, caseInsensitive bool) *Namespace {
+	return &Namespace{loc: loc, caseInsensitive: caseInsensitive}
 }
 
 // Namespace provides template functions for the "compare" namespace.
 type Namespace struct {
+	loc *time.Location
 	// Enable to do case insensitive string compares.
 	caseInsensitive bool
 }
 
-// Default checks whether a given value is set and returns a default value if it
+// Default checks whether a givenv is set and returns the default value defaultv if it
 // is not.  "Set" in this context means non-zero for numeric types and times;
 // non-zero length for strings, arrays, slices, and maps;
 // any boolean or struct value; or non-nil for any other types.
-func (*Namespace) Default(dflt any, given ...any) (any, error) {
+func (*Namespace) Default(defaultv any, givenv ...any) (any, error) {
 	// given is variadic because the following construct will not pass a piped
 	// argument when the key is missing:  {{ index . "key" | default "foo" }}
 	// The Go template will complain that we got 1 argument when we expected 2.
 
-	if len(given) == 0 {
-		return dflt, nil
+	if len(givenv) == 0 {
+		return defaultv, nil
 	}
-	if len(given) != 1 {
-		return nil, fmt.Errorf("wrong number of args for default: want 2 got %d", len(given)+1)
+	if len(givenv) != 1 {
+		return nil, fmt.Errorf("wrong number of args for default: want 2 got %d", len(givenv)+1)
 	}
 
-	g := reflect.ValueOf(given[0])
+	g := reflect.ValueOf(givenv[0])
 	if !g.IsValid() {
-		return dflt, nil
+		return defaultv, nil
 	}
 
 	set := false
@@ -74,7 +78,7 @@ func (*Namespace) Default(dflt any, given ...any) (any, error) {
 	case reflect.Complex64, reflect.Complex128:
 		set = g.Complex() != 0
 	case reflect.Struct:
-		switch actual := given[0].(type) {
+		switch actual := givenv[0].(type) {
 		case time.Time:
 			set = !actual.IsZero()
 		default:
@@ -85,10 +89,10 @@ func (*Namespace) Default(dflt any, given ...any) (any, error) {
 	}
 
 	if set {
-		return given[0], nil
+		return givenv[0], nil
 	}
 
-	return dflt, nil
+	return defaultv, nil
 }
 
 // Eq returns the boolean truth of arg1 == arg2 || arg1 == arg3 || arg1 == arg4.
@@ -101,6 +105,11 @@ func (n *Namespace) Eq(first any, others ...any) bool {
 		if types.IsNil(v) {
 			return nil
 		}
+
+		if at, ok := v.(htime.AsTimeProvider); ok {
+			return at.AsTime(n.loc)
+		}
+
 		vv := reflect.ValueOf(v)
 		switch vv.Kind() {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -215,12 +224,13 @@ func (n *Namespace) checkComparisonArgCount(min int, others ...any) bool {
 }
 
 // Conditional can be used as a ternary operator.
-// It returns a if condition, else b.
-func (n *Namespace) Conditional(condition bool, a, b any) any {
-	if condition {
-		return a
+//
+// It returns v1 if cond is true, else v2.
+func (n *Namespace) Conditional(cond bool, v1, v2 any) any {
+	if cond {
+		return v1
 	}
-	return b
+	return v2
 }
 
 func (ns *Namespace) compareGet(a any, b any) (float64, float64) {
@@ -264,14 +274,14 @@ func (ns *Namespace) compareGetWithCollator(collator *langs.Collator, a any, b a
 	case reflect.String:
 		var err error
 		left, err = strconv.ParseFloat(av.String(), 64)
-		if err != nil {
+		// Check if float is a special floating value and cast value as string.
+		if math.IsInf(left, 0) || math.IsNaN(left) || err != nil {
 			str := av.String()
 			leftStr = &str
 		}
 	case reflect.Struct:
-		switch av.Type() {
-		case timeType:
-			left = float64(toTimeUnix(av))
+		if hreflect.IsTime(av.Type()) {
+			left = float64(ns.toTimeUnix(av))
 		}
 	case reflect.Bool:
 		left = 0
@@ -292,14 +302,14 @@ func (ns *Namespace) compareGetWithCollator(collator *langs.Collator, a any, b a
 	case reflect.String:
 		var err error
 		right, err = strconv.ParseFloat(bv.String(), 64)
-		if err != nil {
+		// Check if float is a special floating value and cast value as string.
+		if math.IsInf(right, 0) || math.IsNaN(right) || err != nil {
 			str := bv.String()
 			rightStr = &str
 		}
 	case reflect.Struct:
-		switch bv.Type() {
-		case timeType:
-			right = float64(toTimeUnix(bv))
+		if hreflect.IsTime(bv.Type()) {
+			right = float64(ns.toTimeUnix(bv))
 		}
 	case reflect.Bool:
 		right = 0
@@ -337,14 +347,10 @@ func (ns *Namespace) compareGetWithCollator(collator *langs.Collator, a any, b a
 	return left, right
 }
 
-var timeType = reflect.TypeOf((*time.Time)(nil)).Elem()
-
-func toTimeUnix(v reflect.Value) int64 {
-	if v.Kind() == reflect.Interface {
-		return toTimeUnix(v.Elem())
-	}
-	if v.Type() != timeType {
+func (ns *Namespace) toTimeUnix(v reflect.Value) int64 {
+	t, ok := hreflect.AsTime(v, ns.loc)
+	if !ok {
 		panic("coding error: argument must be time.Time type reflect Value")
 	}
-	return v.MethodByName("Unix").Call([]reflect.Value{})[0].Int()
+	return t.Unix()
 }

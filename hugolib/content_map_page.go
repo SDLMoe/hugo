@@ -35,7 +35,6 @@ import (
 	"github.com/spf13/cast"
 
 	"github.com/gohugoio/hugo/common/para"
-	"github.com/pkg/errors"
 )
 
 func newPageMaps(h *HugoSites) *pageMaps {
@@ -131,13 +130,13 @@ func (m *pageMap) newPageFromContentNode(n *contentNode, parentBucket *pagesMapB
 
 	gi, err := s.h.gitInfoForPage(ps)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to load Git data")
+		return nil, fmt.Errorf("failed to load Git data: %w", err)
 	}
 	ps.gitInfo = gi
 
 	owners, err := s.h.codeownersForPage(ps)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to load CODEOWNERS")
+		return nil, fmt.Errorf("failed to load CODEOWNERS: %w", err)
 	}
 	ps.codeowners = owners
 
@@ -163,8 +162,6 @@ func (m *pageMap) newPageFromContentNode(n *contentNode, parentBucket *pagesMapB
 			posBodyStart:   -1,
 		},
 	}
-
-	ps.shortcodeState = newShortcodeHandler(ps, ps.s, nil)
 
 	if err := ps.mapContent(parentBucket, metaProvider); err != nil {
 		return nil, ps.wrapError(err)
@@ -269,7 +266,7 @@ func (m *pageMap) newResource(fim hugofs.FileMetaInfo, owner *pageState) (resour
 }
 
 func (m *pageMap) createSiteTaxonomies() error {
-	m.s.taxonomies = make(TaxonomyList)
+	m.s.taxonomies = make(page.TaxonomyList)
 	var walkErr error
 	m.taxonomies.Walk(func(s string, v any) bool {
 		n := v.(*contentNode)
@@ -278,17 +275,17 @@ func (m *pageMap) createSiteTaxonomies() error {
 		viewName := t.name
 
 		if t.termKey == "" {
-			m.s.taxonomies[viewName.plural] = make(Taxonomy)
+			m.s.taxonomies[viewName.plural] = make(page.Taxonomy)
 		} else {
 			taxonomy := m.s.taxonomies[viewName.plural]
 			if taxonomy == nil {
-				walkErr = errors.Errorf("missing taxonomy: %s", viewName.plural)
+				walkErr = fmt.Errorf("missing taxonomy: %s", viewName.plural)
 				return true
 			}
 			m.taxonomyEntries.WalkPrefix(s, func(ss string, v any) bool {
 				b2 := v.(*contentNode)
 				info := b2.viewInfo
-				taxonomy.add(info.termKey, page.NewWeightedPage(info.weight, info.ref.p, n.p))
+				taxonomy[info.termKey] = append(taxonomy[info.termKey], page.NewWeightedPage(info.weight, info.ref.p, n.p))
 
 				return false
 			})

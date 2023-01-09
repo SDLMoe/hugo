@@ -14,12 +14,14 @@
 package hugofs
 
 import (
+	"fmt"
 	"os"
 	"syscall"
 	"time"
 
-	"github.com/pkg/errors"
+	"errors"
 
+	"github.com/gohugoio/hugo/common/herrors"
 	"github.com/spf13/afero"
 )
 
@@ -83,7 +85,7 @@ func (fs *SliceFs) LstatIfPossible(name string) (os.FileInfo, bool, error) {
 		return decorateFileInfo(fi, fs, fs.getOpener(name), "", "", nil), false, nil
 	}
 
-	return nil, false, errors.Errorf("lstat: files not supported: %q", name)
+	return nil, false, fmt.Errorf("lstat: files not supported: %q", name)
 }
 
 func (fs *SliceFs) Mkdir(n string, p os.FileMode) error {
@@ -160,7 +162,7 @@ func (fs *SliceFs) pickFirst(name string) (os.FileInfo, int, error) {
 			return fi, i, nil
 		}
 
-		if !os.IsNotExist(err) {
+		if !herrors.IsNotExist(err) {
 			// Real error
 			return nil, -1, err
 		}
@@ -174,7 +176,7 @@ func (fs *SliceFs) readDirs(name string, startIdx, count int) ([]os.FileInfo, er
 	collect := func(lfs *FileMeta) ([]os.FileInfo, error) {
 		d, err := lfs.Fs.Open(name)
 		if err != nil {
-			if !os.IsNotExist(err) {
+			if !herrors.IsNotExist(err) {
 				return nil, err
 			}
 			return nil, nil

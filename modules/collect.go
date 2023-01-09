@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/bep/debounce"
+	"github.com/gohugoio/hugo/common/herrors"
 	"github.com/gohugoio/hugo/common/loggers"
 
 	"github.com/spf13/cast"
@@ -36,7 +37,7 @@ import (
 
 	"github.com/rogpeppe/go-internal/module"
 
-	"github.com/pkg/errors"
+	"errors"
 
 	"github.com/gohugoio/hugo/config"
 	"github.com/spf13/afero"
@@ -48,7 +49,7 @@ const vendorModulesFilename = "modules.txt"
 
 // IsNotExist returns whether an error means that a module could not be found.
 func IsNotExist(err error) bool {
-	return errors.Cause(err) == ErrNotExist
+	return errors.Is(err, os.ErrNotExist)
 }
 
 // CreateProjectModule creates modules from the given config.
@@ -106,9 +107,15 @@ func (h *Client) collect(tidy bool) (ModulesConfig, *collector) {
 		}
 	}*/
 
+	var workspaceFilename string
+	if h.ccfg.ModuleConfig.Workspace != WorkspaceDisabled {
+		workspaceFilename = h.ccfg.ModuleConfig.Workspace
+	}
+
 	return ModulesConfig{
-		AllModules:        c.modules,
-		GoModulesFilename: c.GoModulesFilename,
+		AllModules:          c.modules,
+		GoModulesFilename:   c.GoModulesFilename,
+		GoWorkspaceFilename: workspaceFilename,
 	}, c
 }
 
@@ -121,6 +128,9 @@ type ModulesConfig struct {
 
 	// Set if this is a Go modules enabled project.
 	GoModulesFilename string
+
+	// Set if a Go workspace file is configured.
+	GoWorkspaceFilename string
 }
 
 func (m *ModulesConfig) setActiveMods(logger loggers.Logger) error {
@@ -289,7 +299,7 @@ func (c *collector) add(owner *moduleAdapter, moduleImport Import, disabled bool
 					return nil, nil
 				}
 				if found, _ := afero.Exists(c.fs, moduleDir); !found {
-					c.err = c.wrapModuleNotFound(errors.Errorf(`module %q not found; either add it as a Hugo Module or store it in %q.`, modulePath, c.ccfg.ThemesDir))
+					c.err = c.wrapModuleNotFound(fmt.Errorf(`module %q not found; either add it as a Hugo Module or store it in %q.`, modulePath, c.ccfg.ThemesDir))
 					return nil, nil
 				}
 			}
@@ -297,7 +307,7 @@ func (c *collector) add(owner *moduleAdapter, moduleImport Import, disabled bool
 	}
 
 	if found, _ := afero.Exists(c.fs, moduleDir); !found {
-		c.err = c.wrapModuleNotFound(errors.Errorf("%q not found", moduleDir))
+		c.err = c.wrapModuleNotFound(fmt.Errorf("%q not found", moduleDir))
 		return nil, nil
 	}
 
@@ -539,7 +549,7 @@ func (c *collector) collectModulesTXT(owner Module) error {
 
 	f, err := c.fs.Open(filename)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if herrors.IsNotExist(err) {
 			return nil
 		}
 
@@ -557,7 +567,7 @@ func (c *collector) collectModulesTXT(owner Module) error {
 		line = strings.TrimSpace(line)
 		parts := strings.Fields(line)
 		if len(parts) != 2 {
-			return errors.Errorf("invalid modules list: %q", filename)
+			return fmt.Errorf("invalid modules list: %q", filename)
 		}
 		path := parts[0]
 
@@ -662,7 +672,7 @@ func (c *collector) normalizeMounts(owner *moduleAdapter, mounts []Mount) ([]Mou
 			targetBase = mnt.Target[0:idxPathSep]
 		}
 		if !files.IsComponentFolder(targetBase) {
-			return nil, errors.Errorf("%s: mount target must be one of: %v", errMsg, files.ComponentFolders)
+			return nil, fmt.Errorf("%s: mount target must be one of: %v", errMsg, files.ComponentFolders)
 		}
 
 		out = append(out, mnt)
@@ -672,7 +682,7 @@ func (c *collector) normalizeMounts(owner *moduleAdapter, mounts []Mount) ([]Mou
 }
 
 func (c *collector) wrapModuleNotFound(err error) error {
-	err = errors.Wrap(ErrNotExist, err.Error())
+	err = fmt.Errorf(err.Error()+": %w", ErrNotExist)
 	if c.GoModulesFilename == "" {
 		return err
 	}
@@ -681,9 +691,9 @@ func (c *collector) wrapModuleNotFound(err error) error {
 
 	switch c.goBinaryStatus {
 	case goBinaryStatusNotFound:
-		return errors.Wrap(err, baseMsg+" you need to install Go to use it. See https://golang.org/dl/.")
+		return fmt.Errorf(baseMsg+" you need to install Go to use it. See https://golang.org/dl/ : %q", err)
 	case goBinaryStatusTooOld:
-		return errors.Wrap(err, baseMsg+" you need to a newer version of Go to use it. See https://golang.org/dl/.")
+		return fmt.Errorf(baseMsg+" you need to a newer version of Go to use it. See https://golang.org/dl/ : %w", err)
 	}
 
 	return err

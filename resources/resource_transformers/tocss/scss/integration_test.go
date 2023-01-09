@@ -14,6 +14,8 @@
 package scss_test
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 
 	qt "github.com/frankban/quicktest"
@@ -23,6 +25,7 @@ import (
 )
 
 func TestTransformIncludePaths(t *testing.T) {
+	t.Parallel()
 	if !scss.Supports() {
 		t.Skip()
 	}
@@ -55,6 +58,7 @@ T1: {{ $r.Content }}
 }
 
 func TestTransformImportRegularCSS(t *testing.T) {
+	t.Parallel()
 	if !scss.Supports() {
 		t.Skip()
 	}
@@ -111,6 +115,7 @@ moo {
 }
 
 func TestTransformThemeOverrides(t *testing.T) {
+	t.Parallel()
 	if !scss.Supports() {
 		t.Skip()
 	}
@@ -133,7 +138,7 @@ moo {
 -- config.toml --
 theme = 'mytheme'
 -- layouts/index.html --
-{{ $cssOpts := (dict "includePaths" (slice "node_modules/foo" ) "transpiler" "dartsass" ) }}
+{{ $cssOpts := (dict "includePaths" (slice "node_modules/foo" ) ) }}
 {{ $r := resources.Get "scss/main.scss" |  toCSS $cssOpts  | minify  }}
 T1: {{ $r.Content }}
 -- themes/mytheme/assets/scss/components/_boo.scss --
@@ -170,4 +175,121 @@ zoo {
 		}).Build()
 
 	b.AssertFileContent("public/index.html", `T1: moo{color:#ccc}boo{color:green}zoo{color:pink}`)
+}
+
+func TestTransformErrors(t *testing.T) {
+	t.Parallel()
+	if !scss.Supports() {
+		t.Skip()
+	}
+
+	c := qt.New(t)
+
+	const filesTemplate = `
+-- config.toml --
+theme = 'mytheme'
+-- assets/scss/components/_foo.scss --
+/* comment line 1 */
+$foocolor: #ccc;
+
+foo {
+	color: $foocolor;
+}
+-- themes/mytheme/assets/scss/main.scss --
+/* comment line 1 */
+/* comment line 2 */
+@import "components/foo";
+/* comment line 4 */
+
+$maincolor: #eee;
+
+body {
+	color: $maincolor;
+}
+
+-- layouts/index.html --
+{{ $cssOpts := dict }}
+{{ $r := resources.Get "scss/main.scss" |  toCSS $cssOpts  | minify  }}
+T1: {{ $r.Content }}
+
+	`
+
+	c.Run("error in main", func(c *qt.C) {
+		b, err := hugolib.NewIntegrationTestBuilder(
+			hugolib.IntegrationTestConfig{
+				T:           c,
+				TxtarString: strings.Replace(filesTemplate, "$maincolor: #eee;", "$maincolor #eee;", 1),
+				NeedsOsFS:   true,
+			}).BuildE()
+
+		b.Assert(err, qt.IsNotNil)
+		b.Assert(err.Error(), qt.Contains, filepath.FromSlash(`themes/mytheme/assets/scss/main.scss:6:1": expected ':' after $maincolor in assignment statement`))
+		fe := b.AssertIsFileError(err)
+		b.Assert(fe.ErrorContext(), qt.IsNotNil)
+		b.Assert(fe.ErrorContext().Lines, qt.DeepEquals, []string{"/* comment line 4 */", "", "$maincolor #eee;", "", "body {"})
+		b.Assert(fe.ErrorContext().ChromaLexer, qt.Equals, "scss")
+
+	})
+
+	c.Run("error in import", func(c *qt.C) {
+		b, err := hugolib.NewIntegrationTestBuilder(
+			hugolib.IntegrationTestConfig{
+				T:           c,
+				TxtarString: strings.Replace(filesTemplate, "$foocolor: #ccc;", "$foocolor #ccc;", 1),
+				NeedsOsFS:   true,
+			}).BuildE()
+
+		b.Assert(err, qt.IsNotNil)
+		b.Assert(err.Error(), qt.Contains, `assets/scss/components/_foo.scss:2:1": expected ':' after $foocolor in assignment statement`)
+		fe := b.AssertIsFileError(err)
+		b.Assert(fe.ErrorContext(), qt.IsNotNil)
+		b.Assert(fe.ErrorContext().Lines, qt.DeepEquals, []string{"/* comment line 1 */", "$foocolor #ccc;", "", "foo {"})
+		b.Assert(fe.ErrorContext().ChromaLexer, qt.Equals, "scss")
+
+	})
+
+}
+
+func TestOptionVars(t *testing.T) {
+	t.Parallel()
+	if !scss.Supports() {
+		t.Skip()
+	}
+
+	files := `
+-- assets/scss/main.scss --
+@import "hugo:vars";
+
+body {
+	body {
+		background: url($image) no-repeat center/cover;
+		font-family: $font;
+	  }	  
+}
+
+p {
+	color: $color1;
+	font-size: var$font_size;
+}
+
+b {
+	color: $color2;
+}
+-- layouts/index.html --
+{{ $image := "images/hero.jpg" }}
+{{ $font := "Hugo's New Roman" }}
+{{ $vars := dict "$color1" "blue" "$color2" "green" "font_size" "24px" "image" $image "font" $font }}
+{{ $cssOpts := (dict "transpiler" "libsass" "outputStyle" "compressed" "vars" $vars ) }}
+{{ $r := resources.Get "scss/main.scss" |  toCSS $cssOpts }}
+T1: {{ $r.Content }}
+	`
+
+	b := hugolib.NewIntegrationTestBuilder(
+		hugolib.IntegrationTestConfig{
+			T:           t,
+			TxtarString: files,
+			NeedsOsFS:   true,
+		}).Build()
+
+	b.AssertFileContent("public/index.html", `T1: body body{background:url(images/hero.jpg) no-repeat center/cover;font-family:Hugo&#39;s New Roman}p{color:blue;font-size:var 24px}b{color:green}`)
 }

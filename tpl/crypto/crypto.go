@@ -23,6 +23,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"hash"
+	"hash/fnv"
 
 	"github.com/spf13/cast"
 )
@@ -35,9 +36,9 @@ func New() *Namespace {
 // Namespace provides template functions for the "crypto" namespace.
 type Namespace struct{}
 
-// MD5 hashes the given input and returns its MD5 checksum.
-func (ns *Namespace) MD5(in any) (string, error) {
-	conv, err := cast.ToStringE(in)
+// MD5 hashes the v and returns its MD5 checksum.
+func (ns *Namespace) MD5(v any) (string, error) {
+	conv, err := cast.ToStringE(v)
 	if err != nil {
 		return "", err
 	}
@@ -46,9 +47,9 @@ func (ns *Namespace) MD5(in any) (string, error) {
 	return hex.EncodeToString(hash[:]), nil
 }
 
-// SHA1 hashes the given input and returns its SHA1 checksum.
-func (ns *Namespace) SHA1(in any) (string, error) {
-	conv, err := cast.ToStringE(in)
+// SHA1 hashes v and returns its SHA1 checksum.
+func (ns *Namespace) SHA1(v any) (string, error) {
+	conv, err := cast.ToStringE(v)
 	if err != nil {
 		return "", err
 	}
@@ -57,15 +58,26 @@ func (ns *Namespace) SHA1(in any) (string, error) {
 	return hex.EncodeToString(hash[:]), nil
 }
 
-// SHA256 hashes the given input and returns its SHA256 checksum.
-func (ns *Namespace) SHA256(in any) (string, error) {
-	conv, err := cast.ToStringE(in)
+// SHA256 hashes v and returns its SHA256 checksum.
+func (ns *Namespace) SHA256(v any) (string, error) {
+	conv, err := cast.ToStringE(v)
 	if err != nil {
 		return "", err
 	}
 
 	hash := sha256.Sum256([]byte(conv))
 	return hex.EncodeToString(hash[:]), nil
+}
+
+// FNV32a hashes v using fnv32a algorithm.
+func (ns *Namespace) FNV32a(v any) (int, error) {
+	conv, err := cast.ToStringE(v)
+	if err != nil {
+		return 0, err
+	}
+	algorithm := fnv.New32a()
+	algorithm.Write([]byte(conv))
+	return int(algorithm.Sum32()), nil
 }
 
 // HMAC returns a cryptographic hash that uses a key to sign a message.

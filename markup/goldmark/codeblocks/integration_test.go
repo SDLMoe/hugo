@@ -265,6 +265,39 @@ Position: {{ .Position | safeHTML }}
 	b.AssertFileContent("public/p1/index.html", filepath.FromSlash("Position: \"/content/p1.md:7:1\""))
 }
 
+// Issue 10118
+func TestAttributes(t *testing.T) {
+	t.Parallel()
+
+	files := `
+-- config.toml --
+-- content/p1.md --
+---
+title: "p1"
+---
+
+## Issue 10118
+
+§§§ {foo="bar"}
+Hello, World!
+§§§
+
+-- layouts/_default/single.html --
+{{ .Content }}
+-- layouts/_default/_markup/render-codeblock.html --
+Attributes: {{ .Attributes }}|Type: {{ .Type }}|
+`
+
+	b := hugolib.NewIntegrationTestBuilder(
+		hugolib.IntegrationTestConfig{
+			T:           t,
+			TxtarString: files,
+		},
+	).Build()
+
+	b.AssertFileContent("public/p1/index.html", "<h2 id=\"issue-10118\">Issue 10118</h2>\nAttributes: map[foo:bar]|Type: |")
+}
+
 // Issue 9571
 func TestAttributesChroma(t *testing.T) {
 	t.Parallel()
@@ -301,4 +334,52 @@ Attributes: {{ .Attributes }}|Options: {{ .Options }}|
 
 	testLanguage("bash", "Attributes: map[]|Options: map[style:monokai]|")
 	testLanguage("hugo", "Attributes: map[style:monokai]|Options: map[]|")
+}
+
+func TestPanics(t *testing.T) {
+
+	files := `
+-- config.toml --
+[markup]
+[markup.goldmark]
+[markup.goldmark.parser]
+autoHeadingID = true
+autoHeadingIDType = "github"
+[markup.goldmark.parser.attribute]
+block = true
+title = true
+-- content/p1.md --
+---
+title: "p1"
+---
+
+BLOCK
+
+Common
+
+-- layouts/_default/single.html --
+{{ .Content }}
+
+
+`
+
+	for _, test := range []struct {
+		name     string
+		markdown string
+	}{
+		{"issue-9819", "asdf\n: {#myid}"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			b := hugolib.NewIntegrationTestBuilder(
+				hugolib.IntegrationTestConfig{
+					T:           t,
+					TxtarString: strings.ReplaceAll(files, "BLOCK", test.markdown),
+				},
+			).Build()
+
+			b.AssertFileContent("public/p1/index.html", "Common")
+		})
+	}
+
 }

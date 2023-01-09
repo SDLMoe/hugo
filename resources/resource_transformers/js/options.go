@@ -21,7 +21,6 @@ import (
 	"strings"
 
 	"github.com/gohugoio/hugo/common/maps"
-	"github.com/pkg/errors"
 	"github.com/spf13/afero"
 
 	"github.com/evanw/esbuild/pkg/api"
@@ -151,7 +150,7 @@ func resolveComponentInAssets(fs afero.Fs, impPath string) *hugofs.FileMeta {
 		for _, ext := range []string{".js", ".ts", ".tsx", ".jsx"} {
 			if strings.HasSuffix(impPath, ext) {
 				// Import of foo.js.js need the full name.
-				return nil
+				continue
 			}
 			if fi, err := fs.Stat(base + ext); err == nil {
 				return fi.(hugofs.FileMetaInfo).Meta()
@@ -164,12 +163,10 @@ func resolveComponentInAssets(fs afero.Fs, impPath string) *hugofs.FileMeta {
 
 	var m *hugofs.FileMeta
 
-	// See issue #8949.
 	// We need to check if this is a regular file imported without an extension.
 	// There may be ambigous situations where both foo.js and foo/index.js exists.
 	// This import order is in line with both how Node and ESBuild's native
 	// import resolver works.
-	// This was fixed in Hugo 0.88.
 
 	// It may be a regular file imported without an extension, e.g.
 	// foo or foo/index.
@@ -178,15 +175,29 @@ func resolveComponentInAssets(fs afero.Fs, impPath string) *hugofs.FileMeta {
 		return m
 	}
 
-	// Finally check the path as is.
+	base := filepath.Base(impPath)
+	if base == "index" {
+		// try index.esm.js etc.
+		m = findFirst(impPath + ".esm")
+		if m != nil {
+			return m
+		}
+	}
+
+	// Check the path as is.
 	fi, err := fs.Stat(impPath)
 
 	if err == nil {
 		if fi.IsDir() {
 			m = findFirst(filepath.Join(impPath, "index"))
+			if m == nil {
+				m = findFirst(filepath.Join(impPath, "index.esm"))
+			}
 		} else {
 			m = fi.(hugofs.FileMetaInfo).Meta()
 		}
+	} else if strings.HasSuffix(base, ".js") {
+		m = findFirst(strings.TrimSuffix(impPath, ".js"))
 	}
 
 	return m
@@ -251,7 +262,7 @@ func createBuildPlugins(c *Client, opts Options) ([]api.Plugin, error) {
 				func(args api.OnLoadArgs) (api.OnLoadResult, error) {
 					b, err := ioutil.ReadFile(args.Path)
 					if err != nil {
-						return api.OnLoadResult{}, errors.Wrapf(err, "failed to read %q", args.Path)
+						return api.OnLoadResult{}, fmt.Errorf("failed to read %q: %w", args.Path, err)
 					}
 					c := string(b)
 					return api.OnLoadResult{
@@ -274,7 +285,7 @@ func createBuildPlugins(c *Client, opts Options) ([]api.Plugin, error) {
 
 	b, err := json.Marshal(params)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to marshal params")
+		return nil, fmt.Errorf("failed to marshal params: %w", err)
 	}
 	bs := string(b)
 	paramsPlugin := api.Plugin{

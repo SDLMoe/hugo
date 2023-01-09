@@ -11,6 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package media containes Media Type (MIME type) related types and functions.
 package media
 
 import (
@@ -163,6 +164,7 @@ func (m Type) Type() string {
 	return m.MainType + "/" + m.SubType
 }
 
+// For internal use.
 func (m Type) String() string {
 	return m.Type()
 }
@@ -229,8 +231,8 @@ var (
 	SASSType       = newMediaType("text", "x-sass", []string{"sass"})
 	CSVType        = newMediaType("text", "csv", []string{"csv"})
 	HTMLType       = newMediaType("text", "html", []string{"html"})
-	JavascriptType = newMediaType("application", "javascript", []string{"js", "jsm", "mjs"})
-	TypeScriptType = newMediaType("application", "typescript", []string{"ts"})
+	JavascriptType = newMediaType("text", "javascript", []string{"js", "jsm", "mjs"})
+	TypeScriptType = newMediaType("text", "typescript", []string{"ts"})
 	TSXType        = newMediaType("text", "tsx", []string{"tsx"})
 	JSXType        = newMediaType("text", "jsx", []string{"jsx"})
 
@@ -256,7 +258,8 @@ var (
 	OpenTypeFontType = newMediaType("font", "otf", []string{"otf"})
 
 	// Common document types
-	PDFType = newMediaType("application", "pdf", []string{"pdf"})
+	PDFType      = newMediaType("application", "pdf", []string{"pdf"})
+	MarkdownType = newMediaType("text", "markdown", []string{"md", "markdown"})
 
 	// Common video types
 	AVIType  = newMediaType("video", "x-msvideo", []string{"avi"})
@@ -277,6 +280,7 @@ var DefaultTypes = Types{
 	SCSSType,
 	SASSType,
 	HTMLType,
+	MarkdownType,
 	JavascriptType,
 	TypeScriptType,
 	TSXType,
@@ -510,11 +514,13 @@ func DecodeTypes(mms ...map[string]any) (Types, error) {
 }
 
 // IsZero reports whether this Type represents a zero value.
+// For internal use.
 func (m Type) IsZero() bool {
 	return m.SubType == ""
 }
 
 // MarshalJSON returns the JSON encoding of m.
+// For internal use.
 func (m Type) MarshalJSON() ([]byte, error) {
 	type Alias Type
 	return json.Marshal(&struct {

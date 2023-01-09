@@ -24,6 +24,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bep/godartsass"
+	"github.com/gohugoio/hugo/common/hexec"
 	"github.com/gohugoio/hugo/hugofs/files"
 
 	"github.com/spf13/afero"
@@ -38,6 +40,8 @@ const (
 )
 
 var (
+	// buildDate allows vendor-specified build date when .git/ is unavailable.
+	buildDate string
 	// vendorInfo contains vendor notes about the current build.
 	vendorInfo string
 )
@@ -53,6 +57,9 @@ type Info struct {
 	// It can be any string, but it will be all lower case.
 	Environment string
 
+	// version of go that the Hugo binary was built with
+	GoVersion string
+
 	deps []*Dependency
 }
 
@@ -63,7 +70,7 @@ func (i Info) Version() VersionString {
 
 // Generator a Hugo meta generator HTML tag.
 func (i Info) Generator() template.HTML {
-	return template.HTML(fmt.Sprintf(`<meta name="generator" content="Hugo %s" />`, CurrentVersion.String()))
+	return template.HTML(fmt.Sprintf(`<meta name="generator" content="Hugo %s">`, CurrentVersion.String()))
 }
 
 func (i Info) IsProduction() bool {
@@ -87,12 +94,14 @@ func NewInfo(environment string, deps []*Dependency) Info {
 	var (
 		commitHash string
 		buildDate  string
+		goVersion  string
 	)
 
 	bi := getBuildInfo()
 	if bi != nil {
 		commitHash = bi.Revision
 		buildDate = bi.RevisionTime
+		goVersion = bi.GoVersion
 	}
 
 	return Info{
@@ -100,6 +109,7 @@ func NewInfo(environment string, deps []*Dependency) Info {
 		BuildDate:   buildDate,
 		Environment: environment,
 		deps:        deps,
+		GoVersion:   goVersion,
 	}
 }
 
@@ -115,6 +125,8 @@ func GetExecEnviron(workDir string, cfg config.Provider, fs afero.Fs) []string {
 	config.SetEnvVars(&env, "PWD", workDir)
 	config.SetEnvVars(&env, "HUGO_ENVIRONMENT", cfg.GetString("environment"))
 	config.SetEnvVars(&env, "HUGO_ENV", cfg.GetString("environment"))
+
+	config.SetEnvVars(&env, "HUGO_PUBLISHDIR", filepath.Join(workDir, cfg.GetString("publishDirOrig")))
 
 	if fs != nil {
 		fis, err := afero.ReadDir(fs, files.FolderJSConfig)
@@ -176,23 +188,14 @@ func getBuildInfo() *buildInfo {
 	return bInfo
 }
 
+func formatDep(path, version string) string {
+	return fmt.Sprintf("%s=%q", path, version)
+}
+
 // GetDependencyList returns a sorted dependency list on the format package="version".
 // It includes both Go dependencies and (a manually maintained) list of C(++) dependencies.
 func GetDependencyList() []string {
 	var deps []string
-
-	formatDep := func(path, version string) string {
-		return fmt.Sprintf("%s=%q", path, version)
-	}
-
-	if IsExtended {
-		deps = append(
-			deps,
-			// TODO(bep) consider adding a DepsNonGo() method to these upstream projects.
-			formatDep("github.com/sass/libsass", "3.6.5"),
-			formatDep("github.com/webmproject/libwebp", "v1.2.0"),
-		)
-	}
 
 	bi := getBuildInfo()
 	if bi == nil {
@@ -203,8 +206,33 @@ func GetDependencyList() []string {
 		deps = append(deps, formatDep(dep.Path, dep.Version))
 	}
 
+	deps = append(deps, GetDependencyListNonGo()...)
+
 	sort.Strings(deps)
 
+	return deps
+}
+
+// GetDependencyListNonGo returns a list of non-Go dependencies.
+func GetDependencyListNonGo() []string {
+	var deps []string
+
+	if IsExtended {
+		deps = append(
+			deps,
+			formatDep("github.com/sass/libsass", "3.6.5"),
+			formatDep("github.com/webmproject/libwebp", "v1.2.4"),
+		)
+	}
+
+	if dartSass := dartSassVersion(); dartSass.ProtocolVersion != "" {
+		const dartSassPath = "github.com/sass/dart-sass-embedded"
+		deps = append(deps,
+			formatDep(dartSassPath+"/protocol", dartSass.ProtocolVersion),
+			formatDep(dartSassPath+"/compiler", dartSass.CompilerVersion),
+			formatDep(dartSassPath+"/implementation", dartSass.ImplementationVersion),
+		)
+	}
 	return deps
 }
 
@@ -240,4 +268,14 @@ type Dependency struct {
 
 	// Replaced by this dependency.
 	Replace *Dependency
+}
+
+func dartSassVersion() godartsass.DartSassVersion {
+	// This is also duplicated in the dartsass package.
+	const dartSassEmbeddedBinaryName = "dart-sass-embedded"
+	if !hexec.InPath(dartSassEmbeddedBinaryName) {
+		return godartsass.DartSassVersion{}
+	}
+	v, _ := godartsass.Version(dartSassEmbeddedBinaryName)
+	return v
 }

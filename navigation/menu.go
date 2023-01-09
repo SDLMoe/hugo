@@ -1,4 +1,4 @@
-// Copyright 2019 The Hugo Authors. All rights reserved.
+// Copyright 2023 The Hugo Authors. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,6 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package navigation provides the menu functionality.
 package navigation
 
 import (
@@ -18,8 +19,6 @@ import (
 	"html/template"
 	"sort"
 	"strings"
-
-	"github.com/pkg/errors"
 
 	"github.com/gohugoio/hugo/common/maps"
 	"github.com/gohugoio/hugo/common/types"
@@ -156,6 +155,7 @@ func (m *MenuEntry) isSamePage(p Page) bool {
 	return false
 }
 
+// For internal use.
 func (m *MenuEntry) MarshallMap(ime map[string]any) error {
 	var err error
 	for k, v := range ime {
@@ -189,7 +189,7 @@ func (m *MenuEntry) MarshallMap(ime map[string]any) error {
 	}
 
 	if err != nil {
-		return errors.Wrapf(err, "failed to marshal menu entry %q", m.KeyName())
+		return fmt.Errorf("failed to marshal menu entry %q: %w", m.KeyName(), err)
 	}
 
 	return nil

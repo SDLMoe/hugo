@@ -14,15 +14,16 @@
 package source
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/bep/gitmap"
 	"github.com/gohugoio/hugo/common/paths"
 
 	"github.com/gohugoio/hugo/hugofs/files"
-
-	"github.com/pkg/errors"
 
 	"github.com/gohugoio/hugo/common/hugio"
 
@@ -244,11 +245,11 @@ func (sp *SourceSpec) NewFileInfo(fi hugofs.FileMetaInfo) (*FileInfo, error) {
 	relPath := m.Path
 
 	if relPath == "" {
-		return nil, errors.Errorf("no Path provided by %v (%T)", m, m.Fs)
+		return nil, fmt.Errorf("no Path provided by %v (%T)", m, m.Fs)
 	}
 
 	if filename == "" {
-		return nil, errors.Errorf("no Filename provided by %v (%T)", m, m.Fs)
+		return nil, fmt.Errorf("no Filename provided by %v (%T)", m, m.Fs)
 	}
 
 	relDir := filepath.Dir(relPath)
@@ -294,4 +295,32 @@ func (sp *SourceSpec) NewFileInfo(fi hugofs.FileMetaInfo) (*FileInfo, error) {
 	}
 
 	return f, nil
+}
+
+func NewGitInfo(info gitmap.GitInfo) GitInfo {
+	return GitInfo(info)
+}
+
+// GitInfo provides information about a version controled source file.
+type GitInfo struct {
+	// Commit hash.
+	Hash string `json:"hash"`
+	// Abbreviated commit hash.
+	AbbreviatedHash string `json:"abbreviatedHash"`
+	// The commit message's subject/title line.
+	Subject string `json:"subject"`
+	// The author name, respecting .mailmap.
+	AuthorName string `json:"authorName"`
+	// The author email address, respecting .mailmap.
+	AuthorEmail string `json:"authorEmail"`
+	// The author date.
+	AuthorDate time.Time `json:"authorDate"`
+	// The commit date.
+	CommitDate time.Time `json:"commitDate"`
+}
+
+// IsZero returns true if the GitInfo is empty,
+// meaning it will also be falsy in the Go templates.
+func (g GitInfo) IsZero() bool {
+	return g.Hash == ""
 }

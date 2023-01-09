@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	qt "github.com/frankban/quicktest"
+	"github.com/gohugoio/hugo/common/paths"
 	"github.com/gohugoio/hugo/config"
 	"github.com/gohugoio/hugo/deps"
 )
@@ -45,6 +46,36 @@ func TestBase(t *testing.T) {
 	} {
 
 		result, err := ns.Base(test.path)
+
+		if b, ok := test.expect.(bool); ok && !b {
+			c.Assert(err, qt.Not(qt.IsNil))
+			continue
+		}
+
+		c.Assert(err, qt.IsNil)
+		c.Assert(result, qt.Equals, test.expect)
+	}
+}
+
+func TestBaseName(t *testing.T) {
+	t.Parallel()
+	c := qt.New(t)
+
+	for _, test := range []struct {
+		path   any
+		expect any
+	}{
+		{filepath.FromSlash(`foo/bar.txt`), `bar`},
+		{filepath.FromSlash(`foo/bar/txt `), `txt `},
+		{filepath.FromSlash(`foo/bar.t`), `bar`},
+		{`foo.bar.txt`, `foo.bar`},
+		{`.x`, ``},
+		{``, `.`},
+		// errors
+		{tstNoStringer{}, false},
+	} {
+
+		result, err := ns.BaseName(test.path)
 
 		if b, ok := test.expect.(bool); ok && !b {
 			c.Assert(err, qt.Not(qt.IsNil))
@@ -127,7 +158,7 @@ func TestJoin(t *testing.T) {
 			`baz/foo/bar.txt`,
 		},
 		{
-			[]any{"", "baz", DirFile{"big", "john"}, filepath.FromSlash(`foo/bar.txt`)},
+			[]any{"", "baz", paths.DirFile{Dir: "big", File: "john"}, filepath.FromSlash(`foo/bar.txt`)},
 			`baz/big|john/foo/bar.txt`,
 		},
 		{nil, ""},
@@ -156,10 +187,10 @@ func TestSplit(t *testing.T) {
 		path   any
 		expect any
 	}{
-		{filepath.FromSlash(`foo/bar.txt`), DirFile{`foo/`, `bar.txt`}},
-		{filepath.FromSlash(`foo/bar/txt `), DirFile{`foo/bar/`, `txt `}},
-		{`foo.bar.txt`, DirFile{``, `foo.bar.txt`}},
-		{``, DirFile{``, ``}},
+		{filepath.FromSlash(`foo/bar.txt`), paths.DirFile{Dir: `foo/`, File: `bar.txt`}},
+		{filepath.FromSlash(`foo/bar/txt `), paths.DirFile{Dir: `foo/bar/`, File: `txt `}},
+		{`foo.bar.txt`, paths.DirFile{Dir: ``, File: `foo.bar.txt`}},
+		{``, paths.DirFile{Dir: ``, File: ``}},
 		// errors
 		{tstNoStringer{}, false},
 	} {

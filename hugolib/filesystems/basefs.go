@@ -28,14 +28,13 @@ import (
 	"github.com/gohugoio/hugo/htesting"
 	"github.com/gohugoio/hugo/hugofs/glob"
 
+	"github.com/gohugoio/hugo/common/herrors"
 	"github.com/gohugoio/hugo/common/types"
 
 	"github.com/gohugoio/hugo/common/loggers"
 	"github.com/rogpeppe/go-internal/lockedfile"
 
 	"github.com/gohugoio/hugo/hugofs/files"
-
-	"github.com/pkg/errors"
 
 	"github.com/gohugoio/hugo/modules"
 
@@ -69,7 +68,7 @@ type BaseFs struct {
 	// This usually maps to /my-project/public.
 	PublishFs afero.Fs
 
-	// The filesystem used for renderStaticToDisk.
+	// The filesystem used for static files.
 	PublishFsStatic afero.Fs
 
 	// A read-only filesystem starting from the project workDir.
@@ -78,18 +77,24 @@ type BaseFs struct {
 	theBigFs *filesystemsCollector
 
 	// Locks.
-	buildMu      *lockedfile.Mutex // <project>/.hugo_build.lock
-	buildMuTests sync.Mutex        // Used in tests.
+	buildMu Lockable // <project>/.hugo_build.lock
+}
+
+type Lockable interface {
+	Lock() (unlock func(), err error)
+}
+
+type fakeLockfileMutex struct {
+	mu sync.Mutex
+}
+
+func (f *fakeLockfileMutex) Lock() (func(), error) {
+	f.mu.Lock()
+	return func() { f.mu.Unlock() }, nil
 }
 
 // Tries to acquire a build lock.
 func (fs *BaseFs) LockBuild() (unlock func(), err error) {
-	if htesting.IsTest {
-		fs.buildMuTests.Lock()
-		return func() {
-			fs.buildMuTests.Unlock()
-		}, nil
-	}
 	return fs.buildMu.Lock()
 }
 
@@ -176,7 +181,7 @@ func (b *BaseFs) AbsProjectContentDir(filename string) (string, string, error) {
 
 	}
 
-	return "", "", errors.Errorf("could not determine content directory for %q", filename)
+	return "", "", fmt.Errorf("could not determine content directory for %q", filename)
 }
 
 // ResolveJSConfigFile resolves the JS-related config file to a absolute
@@ -291,15 +296,15 @@ func (s SourceFilesystems) StaticFs(lang string) afero.Fs {
 
 // StatResource looks for a resource in these filesystems in order: static, assets and finally content.
 // If found in any of them, it returns FileInfo and the relevant filesystem.
-// Any non os.IsNotExist error will be returned.
-// An os.IsNotExist error wil be returned only if all filesystems return such an error.
+// Any non herrors.IsNotExist error will be returned.
+// An herrors.IsNotExist error wil be returned only if all filesystems return such an error.
 // Note that if we only wanted to find the file, we could create a composite Afero fs,
 // but we also need to know which filesystem root it lives in.
 func (s SourceFilesystems) StatResource(lang, filename string) (fi os.FileInfo, fs afero.Fs, err error) {
 	for _, fsToCheck := range []afero.Fs{s.StaticFs(lang), s.Assets.Fs, s.Content.Fs} {
 		fs = fsToCheck
 		fi, err = fs.Stat(filename)
-		if err == nil || !os.IsNotExist(err) {
+		if err == nil || !herrors.IsNotExist(err) {
 			return
 		}
 	}
@@ -447,12 +452,19 @@ func NewBase(p *paths.Paths, logger loggers.Logger, options ...func(*BaseFs) err
 	sourceFs := hugofs.NewBaseFileDecorator(afero.NewBasePathFs(fs.Source, p.WorkingDir))
 	publishFsStatic := fs.PublishDirStatic
 
+	var buildMu Lockable
+	if p.Cfg.GetBool("noBuildLock") || htesting.IsTest {
+		buildMu = &fakeLockfileMutex{}
+	} else {
+		buildMu = lockedfile.MutexAt(filepath.Join(p.WorkingDir, lockFileBuild))
+	}
+
 	b := &BaseFs{
 		SourceFs:        sourceFs,
 		WorkDir:         fs.WorkingDirReadOnly,
 		PublishFs:       publishFs,
 		PublishFsStatic: publishFsStatic,
-		buildMu:         lockedfile.MutexAt(filepath.Join(p.WorkingDir, lockFileBuild)),
+		buildMu:         buildMu,
 	}
 
 	for _, opt := range options {
@@ -468,7 +480,7 @@ func NewBase(p *paths.Paths, logger loggers.Logger, options ...func(*BaseFs) err
 	builder := newSourceFilesystemsBuilder(p, logger, b)
 	sourceFilesystems, err := builder.Build()
 	if err != nil {
-		return nil, errors.Wrap(err, "build filesystems")
+		return nil, fmt.Errorf("build filesystems: %w", err)
 	}
 
 	b.SourceFilesystems = sourceFilesystems
@@ -502,7 +514,7 @@ func (b *sourceFilesystemsBuilder) Build() (*SourceFilesystems, error) {
 	if b.theBigFs == nil {
 		theBigFs, err := b.createMainOverlayFs(b.p)
 		if err != nil {
-			return nil, errors.Wrap(err, "create main fs")
+			return nil, fmt.Errorf("create main fs: %w", err)
 		}
 
 		b.theBigFs = theBigFs
@@ -544,7 +556,7 @@ func (b *sourceFilesystemsBuilder) Build() (*SourceFilesystems, error) {
 
 	contentFs, err := hugofs.NewLanguageFs(b.p.LanguagesDefaultFirst.AsOrdinalSet(), contentBfs)
 	if err != nil {
-		return nil, errors.Wrap(err, "create content filesystem")
+		return nil, fmt.Errorf("create content filesystem: %w", err)
 	}
 
 	b.result.Content = b.newSourceFilesystem(files.ComponentFolderContent, contentFs, contentDirs)

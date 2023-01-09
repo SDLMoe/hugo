@@ -1,11 +1,12 @@
 package deps
 
 import (
+	"fmt"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/pkg/errors"
 
 	"github.com/gohugoio/hugo/cache/filecache"
 	"github.com/gohugoio/hugo/common/hexec"
@@ -17,6 +18,7 @@ import (
 	"github.com/gohugoio/hugo/langs"
 	"github.com/gohugoio/hugo/media"
 	"github.com/gohugoio/hugo/resources/page"
+	"github.com/gohugoio/hugo/resources/postpub"
 
 	"github.com/gohugoio/hugo/metrics"
 	"github.com/gohugoio/hugo/output"
@@ -78,6 +80,10 @@ type Deps struct {
 
 	// All the output formats available for the current site.
 	OutputFormatsConfig output.Formats
+
+	// FilenameHasPostProcessPrefix is a set of filenames in /public that
+	// contains a post-processing prefix.
+	FilenameHasPostProcessPrefix []string
 
 	templateProvider ResourceProvider
 	WithTemplate     func(templ tpl.TemplateManager) error `json:"-"`
@@ -186,11 +192,11 @@ func (d *Deps) SetTextTmpl(tmpl tpl.TemplateParseFinder) {
 func (d *Deps) LoadResources() error {
 	// Note that the translations need to be loaded before the templates.
 	if err := d.translationProvider.Update(d); err != nil {
-		return errors.Wrap(err, "loading translations")
+		return fmt.Errorf("loading translations: %w", err)
 	}
 
 	if err := d.templateProvider.Update(d); err != nil {
-		return errors.Wrap(err, "loading templates")
+		return fmt.Errorf("loading templates: %w", err)
 	}
 
 	return nil
@@ -203,6 +209,7 @@ func New(cfg DepsCfg) (*Deps, error) {
 	var (
 		logger = cfg.Logger
 		fs     = cfg.Fs
+		d      *Deps
 	)
 
 	if cfg.TemplateProvider == nil {
@@ -236,18 +243,44 @@ func New(cfg DepsCfg) (*Deps, error) {
 
 	securityConfig, err := security.DecodeConfig(cfg.Cfg)
 	if err != nil {
-		return nil, errors.WithMessage(err, "failed to create security config from configuration")
+		return nil, fmt.Errorf("failed to create security config from configuration: %w", err)
 	}
 	execHelper := hexec.New(securityConfig)
 
+	var filenameHasPostProcessPrefixMu sync.Mutex
+	hashBytesReceiverFunc := func(name string, match bool) {
+		if !match {
+			return
+		}
+		filenameHasPostProcessPrefixMu.Lock()
+		d.FilenameHasPostProcessPrefix = append(d.FilenameHasPostProcessPrefix, name)
+		filenameHasPostProcessPrefixMu.Unlock()
+	}
+
+	// Skip binary files.
+	hashBytesSHouldCheck := func(name string) bool {
+		ext := strings.TrimPrefix(filepath.Ext(name), ".")
+		mime, _, found := cfg.MediaTypes.GetBySuffix(ext)
+		if !found {
+			return false
+		}
+		switch mime.MainType {
+		case "text", "application":
+			return true
+		default:
+			return false
+		}
+	}
+	fs.PublishDir = hugofs.NewHasBytesReceiver(fs.PublishDir, hashBytesSHouldCheck, hashBytesReceiverFunc, []byte(postpub.PostProcessPrefix))
+
 	ps, err := helpers.NewPathSpec(fs, cfg.Language, logger)
 	if err != nil {
-		return nil, errors.Wrap(err, "create PathSpec")
+		return nil, fmt.Errorf("create PathSpec: %w", err)
 	}
 
 	fileCaches, err := filecache.NewCaches(ps)
 	if err != nil {
-		return nil, errors.WithMessage(err, "failed to create file caches from configuration")
+		return nil, fmt.Errorf("failed to create file caches from configuration: %w", err)
 	}
 
 	errorHandler := &globalErrHandler{}
@@ -275,7 +308,7 @@ func New(cfg DepsCfg) (*Deps, error) {
 
 	logDistinct := helpers.NewDistinctLogger(logger)
 
-	d := &Deps{
+	d = &Deps{
 		Fs:                      fs,
 		Log:                     ignorableLogger,
 		LogDistinct:             logDistinct,

@@ -17,9 +17,9 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"fmt"
 	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -42,7 +42,6 @@ import (
 	"github.com/gohugoio/hugo/common/herrors"
 	"github.com/gohugoio/hugo/hugofs"
 	"github.com/gohugoio/hugo/hugofs/files"
-	"github.com/pkg/errors"
 
 	htmltemplate "github.com/gohugoio/hugo/tpl/internal/go_templates/htmltemplate"
 	texttemplate "github.com/gohugoio/hugo/tpl/internal/go_templates/texttemplate"
@@ -61,6 +60,7 @@ const (
 
 // The identifiers may be truncated in the log, e.g.
 // "executing "main" at <$scaled.SRelPermalin...>: can't evaluate field SRelPermalink in type *resource.Image"
+// We need this to identify position in templates with base templates applied.
 var identifiersRe = regexp.MustCompile(`at \<(.*?)(\.{3})?\>:`)
 
 var embeddedTemplatesAliases = map[string][]string{
@@ -90,9 +90,15 @@ func needsBaseTemplate(templ string) bool {
 		if !inComment && strings.HasPrefix(templ[i:], "{{/*") {
 			inComment = true
 			i += 4
+		} else if !inComment && strings.HasPrefix(templ[i:], "{{- /*") {
+			inComment = true
+			i += 6
 		} else if inComment && strings.HasPrefix(templ[i:], "*/}}") {
 			inComment = false
 			i += 4
+		} else if inComment && strings.HasPrefix(templ[i:], "*/ -}}") {
+			inComment = false
+			i += 6
 		} else {
 			r, size := utf8.DecodeRuneInString(templ[i:])
 			if !inComment {
@@ -152,7 +158,7 @@ func newTemplateExec(d *deps.Deps) (*templateExec, error) {
 		Deps:                d,
 		layoutHandler:       output.NewLayoutHandler(),
 		layoutsFs:           d.BaseFs.Layouts.Fs,
-		layoutTemplateCache: make(map[layoutCacheKey]tpl.Template),
+		layoutTemplateCache: make(map[layoutCacheKey]layoutCacheEntry),
 
 		templateUsageTracker: templateUsageTracker,
 	}
@@ -327,7 +333,7 @@ type templateHandler struct {
 
 	layoutHandler *output.LayoutHandler
 
-	layoutTemplateCache   map[layoutCacheKey]tpl.Template
+	layoutTemplateCache   map[layoutCacheKey]layoutCacheEntry
 	layoutTemplateCacheMu sync.RWMutex
 
 	*deps.Deps
@@ -356,6 +362,12 @@ type templateHandler struct {
 	templateUsageTrackerMu sync.Mutex
 }
 
+type layoutCacheEntry struct {
+	found bool
+	templ tpl.Template
+	err   error
+}
+
 // AddTemplate parses and adds a template to the collection.
 // Templates with name prefixed with "_text" will be handled as plain
 // text templates.
@@ -381,7 +393,7 @@ func (t *templateHandler) LookupLayout(d output.LayoutDescriptor, f output.Forma
 	t.layoutTemplateCacheMu.RLock()
 	if cacheVal, found := t.layoutTemplateCache[key]; found {
 		t.layoutTemplateCacheMu.RUnlock()
-		return cacheVal, true, nil
+		return cacheVal.templ, cacheVal.found, cacheVal.err
 	}
 	t.layoutTemplateCacheMu.RUnlock()
 
@@ -389,12 +401,10 @@ func (t *templateHandler) LookupLayout(d output.LayoutDescriptor, f output.Forma
 	defer t.layoutTemplateCacheMu.Unlock()
 
 	templ, found, err := t.findLayout(d, f)
-	if err == nil && found {
-		t.layoutTemplateCache[key] = templ
-		return templ, true, nil
-	}
+	cacheVal := layoutCacheEntry{found: found, templ: templ, err: err}
+	t.layoutTemplateCache[key] = cacheVal
+	return cacheVal.templ, cacheVal.found, cacheVal.err
 
-	return nil, false, err
 }
 
 // This currently only applies to shortcodes and what we get here is the
@@ -524,25 +534,27 @@ func (t *templateHandler) addFileContext(templ tpl.Template, inerr error) error 
 		return inerr
 	}
 
+	identifiers := t.extractIdentifiers(inerr.Error())
+
 	//lint:ignore ST1008 the error is the main result
 	checkFilename := func(info templateInfo, inErr error) (error, bool) {
 		if info.filename == "" {
 			return inErr, false
 		}
 
-		lineMatcher := func(m herrors.LineMatcher) bool {
+		lineMatcher := func(m herrors.LineMatcher) int {
 			if m.Position.LineNumber != m.LineNumber {
-				return false
+				return -1
 			}
-
-			identifiers := t.extractIdentifiers(m.Error.Error())
 
 			for _, id := range identifiers {
 				if strings.Contains(m.Line, id) {
-					return true
+					// We found the line, but return a 0 to signal to
+					// use the column from the error message.
+					return 0
 				}
 			}
-			return false
+			return -1
 		}
 
 		f, err := t.layoutsFs.Open(info.filename)
@@ -551,14 +563,16 @@ func (t *templateHandler) addFileContext(templ tpl.Template, inerr error) error 
 		}
 		defer f.Close()
 
-		fe, ok := herrors.WithFileContext(inErr, info.realFilename, f, lineMatcher)
-		if ok {
-			return fe, true
+		fe := herrors.NewFileErrorFromName(inErr, info.realFilename)
+		fe.UpdateContent(f, lineMatcher)
+
+		if !fe.ErrorContext().Position.IsValid() {
+			return inErr, false
 		}
-		return inErr, false
+		return fe, true
 	}
 
-	inerr = errors.Wrap(inerr, "execute of template failed")
+	inerr = fmt.Errorf("execute of template failed: %w", inerr)
 
 	if err, ok := checkFilename(ts.info, inerr); ok {
 		return err
@@ -567,6 +581,15 @@ func (t *templateHandler) addFileContext(templ tpl.Template, inerr error) error 
 	err, _ := checkFilename(ts.baseInfo, inerr)
 
 	return err
+}
+
+func (t *templateHandler) extractIdentifiers(line string) []string {
+	m := identifiersRe.FindAllStringSubmatch(line, -1)
+	identifiers := make([]string, len(m))
+	for i := 0; i < len(m); i++ {
+		identifiers[i] = m[i][1]
+	}
+	return identifiers
 }
 
 func (t *templateHandler) addShortcodeVariant(ts *templateState) {
@@ -725,17 +748,9 @@ func (t *templateHandler) applyTemplateTransformers(ns *templateNamespace, ts *t
 	return c, err
 }
 
-func (t *templateHandler) extractIdentifiers(line string) []string {
-	m := identifiersRe.FindAllStringSubmatch(line, -1)
-	identifiers := make([]string, len(m))
-	for i := 0; i < len(m); i++ {
-		identifiers[i] = m[i][1]
-	}
-	return identifiers
-}
-
 //go:embed embedded/templates/*
 //go:embed embedded/templates/_default/*
+//go:embed embedded/templates/_server/*
 var embededTemplatesFs embed.FS
 
 func (t *templateHandler) loadEmbedded() error {
@@ -755,10 +770,10 @@ func (t *templateHandler) loadEmbedded() error {
 		name := strings.TrimPrefix(filepath.ToSlash(path), "embedded/templates/")
 		templateName := name
 
-		// For the render hooks it does not make sense to preseve the
+		// For the render hooks and the server templates it does not make sense to preseve the
 		// double _indternal double book-keeping,
 		// just add it if its now provided by the user.
-		if !strings.Contains(path, "_default/_markup") {
+		if !strings.Contains(path, "_default/_markup") && !strings.HasPrefix(name, "_server/") {
 			templateName = internalPathPrefix + name
 		}
 
@@ -808,7 +823,7 @@ func (t *templateHandler) loadTemplates() error {
 	}
 
 	if err := helpers.SymbolicWalk(t.Layouts.Fs, "", walker); err != nil {
-		if !os.IsNotExist(err) {
+		if !herrors.IsNotExist(err) {
 			return err
 		}
 		return nil
